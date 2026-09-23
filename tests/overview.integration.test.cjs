@@ -9,7 +9,6 @@ const { collectSnapshot, closeDatabase } = require("../electron/db.cjs");
 const { buildOverview } = require("../electron/overview.cjs");
 
 test("overview uses live PostgreSQL data and preserves stale data after failure", { skip: process.env.BDASH_TEST_PG !== "1" }, async () => {
-  require("dotenv").config();
   const tempRoot = path.resolve(os.tmpdir());
   const dir = fs.mkdtempSync(path.join(tempRoot, "bdash-overview-"));
   const storage = openStorage(dir);

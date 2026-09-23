@@ -9,6 +9,8 @@ let pool;
 let activeProfile = null;
 let sessionPassword = null;
 let switchingProfile = false;
+// Public development default for the first local profile. Never apply it to remote origins.
+const DEFAULT_LOCAL_PASSWORD = "password";
 
 const RDS_CA_PATH = path.join(__dirname, "certs", "rds-global-bundle.pem");
 
@@ -34,10 +36,10 @@ function currentProfile() {
   return activeProfile || {
     id: 1,
     label: "PostgreSQL",
-    host: process.env.PGHOST || "localhost",
-    port: Number(process.env.PGPORT || 5432),
-    database: process.env.PGDATABASE || "postgres",
-    dbUser: process.env.PGUSER || "postgres",
+    host: "localhost",
+    port: 5432,
+    database: "postgres",
+    dbUser: "postgres",
     authMode: "legacy_env",
   };
 }
@@ -81,7 +83,9 @@ function connectionConfig(profile, password = null, options = {}) {
     config.password = () => (options.tokenProvider || execAwsToken)(profile);
   } else if (mode === "legacy_env") {
     config.ssl = passwordTls(profile.host);
-    config.password = process.env.PGPASSWORD;
+    const isDefaultLocal = profile.id === 1 && profile.host === "localhost" &&
+      Number(profile.port) === 5432 && profile.database === "postgres" && profile.dbUser === "postgres";
+    config.password = isDefaultLocal ? DEFAULT_LOCAL_PASSWORD : process.env.PGPASSWORD;
   } else {
     if (typeof password !== "string" || !password) {
       throw new ConnectionError("INVALID_INPUT", "database_auth", "Informe a senha da sessão para este perfil.");
@@ -321,6 +325,53 @@ async function collectSnapshot() {
     snapshot.error = failures.length ? failures.join("; ") : null;
   }
   return snapshot;
+}
+
+/** Current database catalog. Disk sizes are measured only for the requested page. */
+async function listDatabaseInventory(input = {}, options = {}) {
+  const limit = input.limit ?? 50;
+  const offset = input.offset ?? Number(input.cursor ?? 0);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 200 ||
+      !Number.isSafeInteger(offset) || offset < 0 || offset > 10_000_000) {
+    throw new TypeError("Invalid database inventory page");
+  }
+  const owned = !options.client;
+  const client = options.client || await getPool().connect();
+  try {
+    const count = await client.query("SELECT count(*) AS total FROM pg_database");
+    const total = safeNumber(count.rows[0]?.total) ?? 0;
+    const catalog = await client.query(`SELECT d.oid, d.datname AS name,
+      pg_get_userbyid(d.datdba) AS owner, pg_encoding_to_char(d.encoding) AS encoding,
+      d.datcollate AS collation, d.datallowconn AS allows_connections,
+      d.datconnlimit AS connection_limit, d.datistemplate AS template,
+      (has_database_privilege(d.oid, 'CONNECT') OR
+        pg_has_role(current_user, 'pg_read_all_stats', 'MEMBER')) AS can_measure_size,
+      COALESCE(s.numbackends, 0) AS connections
+      FROM pg_database d LEFT JOIN pg_stat_database s ON s.datid = d.oid
+      ORDER BY d.datname LIMIT $1 OFFSET $2`, [limit, offset]);
+    const measurable = catalog.rows.filter((row) => row.can_measure_size).map((row) => row.oid);
+    const sizes = new Map();
+    if (measurable.length) {
+      try {
+        const result = await client.query(`SELECT d.oid, pg_database_size(d.oid) AS size_bytes
+          FROM pg_database d WHERE d.oid = ANY($1::oid[])`, [measurable]);
+        for (const row of result.rows) sizes.set(Number(row.oid), safeNumber(row.size_bytes));
+      } catch { /* Metadata remains available if a size check is denied or times out. */ }
+    }
+    const rows = catalog.rows.map((row) => ({
+      oid: Number(row.oid), name: row.name,
+      sizeBytes: sizes.get(Number(row.oid)) ?? null,
+      owner: row.owner, encoding: row.encoding, collation: row.collation,
+      connections: safeNumber(row.connections) ?? 0,
+      connectionLimit: Number(row.connection_limit),
+      allowsConnections: row.allows_connections === true,
+      template: row.template === true,
+    }));
+    return { rows, total, nextCursor: offset + rows.length < total ? String(offset + rows.length) : undefined,
+      sizeIncomplete: rows.some((row) => row.sizeBytes === null), updatedAt: new Date().toISOString() };
+  } finally {
+    if (owned) client.release();
+  }
 }
 
 /** Compatibility for the original dashboard while its renderer is replaced. */
@@ -617,7 +668,7 @@ async function closeDatabase() {
 }
 
 module.exports = {
-  getPool, detectCapabilities, collectSnapshot, getDatabaseStats,
+  getPool, detectCapabilities, collectSnapshot, getDatabaseStats, listDatabaseInventory,
   listSessions, revealSessionDetails, terminateSession, getQueryAggregates,
   getGlobalQueryLatency, closeDatabase,
   setActiveProfile, testConnection, connectionConfig, classifyConnectionError, currentProfile,

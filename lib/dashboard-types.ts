@@ -195,6 +195,24 @@ export interface DatabaseActivityRow extends DatabaseSummary {
   cacheHitsInPeriod: number | null;
 }
 
+export interface DatabaseInventoryRow {
+  oid: number;
+  name: string;
+  sizeBytes: number | null;
+  owner: string;
+  encoding: string;
+  collation: string;
+  connections: number;
+  connectionLimit: number;
+  allowsConnections: boolean;
+  template: boolean;
+}
+
+export interface DatabaseInventory {
+  sourceContext?: SourceContext;
+  databases: DataBlock<Paginated<DatabaseInventoryRow>>;
+}
+
 export interface DatabaseActivity {
   sourceContext?: SourceContext;
   ranking: DataBlock<Paginated<DatabaseActivityRow>>;
@@ -305,6 +323,7 @@ export interface DashboardApi {
   getSessions(filters: SessionFilters): Promise<SessionsResult>;
   revealSessionDetails(identity: SessionIdentity): Promise<SessionDetails>;
   getDatabaseActivity(period: Period, page: Page): Promise<DatabaseActivity>;
+  getDatabaseInventory(page: Page): Promise<DatabaseInventory>;
   getPerformance(period: Period, page: Page): Promise<Performance>;
   getLogs(filters: LogFilters): Promise<DataBlock<Paginated<LogEvent>>>;
   getDiagnostics(): Promise<Diagnostics>;

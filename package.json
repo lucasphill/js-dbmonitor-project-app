@@ -1,6 +1,7 @@
 {
   "name": "dbmonitor-desktop",
   "productName": "DBMonitor",
+  "description": "Dashboard desktop de observabilidade PostgreSQL",
   "version": "0.1.1",
   "private": true,
   "main": "electron/main.cjs",
@@ -10,6 +11,7 @@
     "start": "electron .",
     "dist": "npm run build && electron-builder",
     "dist:win": "npm run build && electron-builder --win nsis",
+    "dist:linux": "npm run build && electron-builder --linux AppImage deb",
     "test": "node --test --test-isolation=none",
     "typecheck": "tsc --noEmit",
     "verify": "npm run typecheck && npm test && npm run build"
@@ -18,7 +20,6 @@
     "@base-ui/react": "^1.8.0",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.4.0",
-    "dotenv": "^16.6.1",
     "lucide-react": "^1.47.0",
     "pg": "^8.23.0",
     "react": "^19.2.0",
@@ -55,6 +56,12 @@
     },
     "win": {
       "target": "nsis"
+    },
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "category": "Development",
+      "executableName": "dbmonitor",
+      "maintainer": "DBMonitor Contributors <noreply@github.com>"
     }
   }
 }

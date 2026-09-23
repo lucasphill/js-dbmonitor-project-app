@@ -22,7 +22,7 @@ export function ConnectionProfileSelector({ profiles, activeProfileId, busy, onS
     <div className="flex flex-wrap items-center gap-2"><Select value={active ? String(active.id) : undefined} onValueChange={(id) => { if (id) onSelect(Number(id)) }} disabled={busy || options.length === 0} items={options}>
       <SelectTrigger className="w-56 max-w-full" title={active ? profileDescription(active) : undefined}><SelectValue placeholder="Selecionar origem">{active?.label}</SelectValue></SelectTrigger>
       <SelectContent><SelectGroup>{options.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectGroup></SelectContent>
-    </Select><Badge variant="secondary">{active?.authMode === "rds_iam" ? "RDS IAM" : active?.authMode === "session_password" ? "Senha da sessão" : "Local legado"}</Badge></div>
+    </Select><Badge variant="secondary">{active?.authMode === "rds_iam" ? "RDS IAM" : active?.authMode === "session_password" ? "Senha da sessão" : active?.host === "localhost" ? "Padrão local" : "Legado"}</Badge></div>
     <span className="max-w-full truncate text-xs text-muted-foreground" title={active ? profileDescription(active) : undefined}>{active ? profileDescription(active) : "Origem não selecionada"}</span>
   </div>
 }

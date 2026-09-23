@@ -43,6 +43,22 @@ test("remote password profiles require verified TLS while localhost remains avai
   }
 });
 
+test("the first local profile has the requested password without an env file", () => {
+  const previous = process.env.PGPASSWORD;
+  try {
+    delete process.env.PGPASSWORD;
+    const config = connectionConfig({ id: 1, host: "localhost", port: 5432,
+      database: "postgres", dbUser: "postgres", authMode: "legacy_env" });
+    assert.equal(config.password, "password");
+    const remote = connectionConfig({ id: 1, host: "db.example.org", port: 5432,
+      database: "postgres", dbUser: "postgres", authMode: "legacy_env" });
+    assert.equal(remote.password, undefined);
+  } finally {
+    if (previous === undefined) delete process.env.PGPASSWORD;
+    else process.env.PGPASSWORD = previous;
+  }
+});
+
 test("connection test reports success only after PostgreSQL query and closes client", async () => {
   const events = [];
   class FakeClient {

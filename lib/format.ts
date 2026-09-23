@@ -103,3 +103,12 @@ export function formatBytes(bytes: OptionalNumber): string {
   const scaled = bytes / 1_024 ** unitIndex
   return `${formatNumber(scaled, { maximumFractionDigits: unitIndex === 0 ? 0 : 1 })} ${units[unitIndex]}`
 }
+
+/** PostgreSQL database sizes use decimal MB/GB in the inventory. */
+export function formatDatabaseSize(bytes: OptionalNumber): string {
+  if (!finite(bytes) || bytes < 0) return unavailable
+  const gigabyte = 1_000_000_000
+  const unit = bytes >= gigabyte ? "GB" : "MB"
+  const divisor = bytes >= gigabyte ? gigabyte : 1_000_000
+  return `${formatNumber(bytes / divisor, { maximumFractionDigits: 1 })} ${unit}`
+}

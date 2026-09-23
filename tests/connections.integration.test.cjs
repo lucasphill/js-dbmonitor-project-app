@@ -1,7 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { Client } = require("pg");
-require("dotenv").config();
 const { listSessions, revealSessionDetails, terminateSession, closeDatabase } = require("../electron/db.cjs");
 
 test("a disposable client session can be revealed and terminated by exact identity", { skip: !process.env.BDASH_TEST_PG }, async () => {

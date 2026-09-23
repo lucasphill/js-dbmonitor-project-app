@@ -51,9 +51,6 @@ function migrate(db) {
   const version = Number(db.prepare("PRAGMA user_version").get().user_version);
   if (version > SCHEMA_VERSION) throw new Error("SQLite schema is newer than this application");
   if (version === SCHEMA_VERSION) return;
-  const hadLegacyInstance = version >= 1 &&
-    db.prepare("SELECT id FROM instances WHERE id=1").get() != null;
-
   // SQLite requires FK enforcement to be disabled before, not within, the transaction
   // that rebuilds tables referenced by historical rows.
   if (version < 3) db.exec("PRAGMA foreign_keys = OFF");
@@ -224,7 +221,7 @@ function migrate(db) {
             server_version,state,capabilities_json,last_collected_at,max_connections,server_started_at
           FROM instances;
         INSERT OR IGNORE INTO instances_v3(id,label,host,port,monitor_database,db_user,auth_mode,tls_ca_mode,created_at,updated_at)
-          VALUES (1,'PostgreSQL','localhost',5432,'postgres','postgres','legacy_env',NULL,
+          VALUES (1,'PostgreSQL local','localhost',5432,'postgres','postgres','legacy_env',NULL,
             CAST(strftime('%s','now') AS INTEGER)*1000,CAST(strftime('%s','now') AS INTEGER)*1000);
         DROP TABLE instances;
         ALTER TABLE instances_v3 RENAME TO instances;
@@ -270,16 +267,6 @@ function migrate(db) {
         CREATE INDEX idx_log_sources_instance ON log_sources(instance_id);
         CREATE INDEX idx_log_events_source_time ON log_events(source_id,event_time);
       `);
-      const localUser = process.env.PGUSER?.trim() || "postgres";
-      db.prepare("UPDATE instances SET db_user=? WHERE id=1").run(localUser);
-      if (!hadLegacyInstance) {
-        const localPort = Number(process.env.PGPORT);
-        db.prepare(`UPDATE instances SET host=?,port=?,monitor_database=? WHERE id=1`).run(
-          process.env.PGHOST?.trim() || "localhost",
-          Number.isInteger(localPort) && localPort >= 1 && localPort <= 65535 ? localPort : 5432,
-          process.env.PGDATABASE?.trim() || "postgres",
-        );
-      }
       const broken = db.prepare("PRAGMA foreign_key_check").all();
       if (broken.length) throw new Error("SQLite migration foreign key check failed");
     }

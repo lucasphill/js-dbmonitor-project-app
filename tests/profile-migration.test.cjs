@@ -62,13 +62,11 @@ function cleanup(directory) { fs.rmSync(directory, { recursive: true, force: tru
 
 test("v2 populated migration preserves id 1 and all history with valid FKs", () => {
   const dir = fixture();
-  const previousUser = process.env.PGUSER;
   try {
-    process.env.PGUSER = "local_operator";
     const storage = openStorage(dir);
     assert.equal(storage.getActiveProfileId(), 1);
     assert.equal(storage.getProfile(1).label, "Legado");
-    assert.equal(storage.getProfile(1).dbUser, "local_operator");
+    assert.equal(storage.getProfile(1).dbUser, "postgres");
     assert.equal(storage.getPreferences(1).logSourcePath, "C:/postgres.csv");
     assert.equal(storage.getLatestCycle(1).metrics.connections, 5);
     assert.equal(storage.getLatestDatabases(1)[0].name, "postgres");
@@ -87,31 +85,23 @@ test("v2 populated migration preserves id 1 and all history with valid FKs", () 
     assert.equal(reopened.getLatestCycle(1).id, 3);
     reopened.close();
   } finally {
-    if (previousUser === undefined) delete process.env.PGUSER;
-    else process.env.PGUSER = previousUser;
     cleanup(dir);
   }
 });
 
 test("v2 empty migration creates usable local profile", () => {
   const dir = fixture(false);
-  const previous = Object.fromEntries(["PGHOST","PGPORT","PGDATABASE","PGUSER"].map((key)=>[key,process.env[key]]));
   try {
-    Object.assign(process.env,{PGHOST:"127.0.0.1",PGPORT:"5544",PGDATABASE:"observability",PGUSER:"observer"});
     const storage = openStorage(dir);
     assert.equal(storage.getProfile(1).authMode, "legacy_env");
-    assert.equal(storage.getProfile(1).host, "127.0.0.1");
-    assert.equal(storage.getProfile(1).port, 5544);
-    assert.equal(storage.getProfile(1).database, "observability");
-    assert.equal(storage.getProfile(1).dbUser, "observer");
+    assert.equal(storage.getProfile(1).host, "localhost");
+    assert.equal(storage.getProfile(1).port, 5432);
+    assert.equal(storage.getProfile(1).database, "postgres");
+    assert.equal(storage.getProfile(1).dbUser, "postgres");
     assert.equal(storage.getLatestCycle(1), null);
     assert.deepEqual(storage.db.prepare("PRAGMA foreign_key_check").all(), []);
     storage.close();
   } finally {
-    for (const [key,value] of Object.entries(previous)) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key]=value;
-    }
     cleanup(dir);
   }
 });

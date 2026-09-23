@@ -1,12 +1,12 @@
 # DBMonitor
 
-DBMonitor é um dashboard desktop para observar instâncias PostgreSQL sem depender de um serviço de monitoramento externo. Permite cadastrar múltiplos perfis e monitorar uma origem ativa por vez. Mostra estado da instância, conexões e consultas ativas, atividade por banco, desempenho, logs estruturados e diagnósticos. A tabela de conexões permite encerrar uma sessão cliente específica com confirmação.
+DBMonitor é um dashboard desktop para observar instâncias PostgreSQL sem depender de um serviço de monitoramento externo. Permite cadastrar múltiplos perfis e monitorar uma origem ativa por vez. Mostra estado da instância, conexões e consultas ativas, atividade por banco, desempenho, logs estruturados e diagnósticos. A tabela de sessões mostra quando cada conexão foi aberta e permite encerrar uma sessão cliente específica com confirmação. A tela Bancos inclui um inventário com tamanho em disco, proprietário, codificação, conexões e limite de conexões.
 
 ## Proposta e funcionamento
 
 O aplicativo consulta as views administrativas do PostgreSQL periodicamente, identifica a origem de cada coleta e guarda amostras no SQLite local. A interface usa essas amostras para mostrar séries, comparações por banco e lacunas de coleta. Dados indisponíveis aparecem como tal; o painel não inventa latência ou eventos de log quando a fonte não está configurada.
 
-Cada perfil contém endpoint, porta, banco, usuário PostgreSQL e modo de autenticação. O perfil local pode usar variáveis de ambiente; outros perfis podem usar senha fornecida para a sessão ou autenticação IAM do RDS por meio da AWS CLI já configurada no computador. Para IAM, um token novo é obtido ao abrir cada conexão física. Senhas e tokens não são armazenados no SQLite. Conexões remotas com senha exigem TLS com certificado e nome do servidor válidos; `localhost` pode usar conexão local sem TLS. A troca de perfil interrompe a coleta anterior antes de iniciar a nova; consultas, histórico, preferências, exportações e ações administrativas mantêm a identidade da origem.
+Cada perfil contém endpoint, porta, banco, usuário PostgreSQL e modo de autenticação. Uma instalação nova começa com o perfil **PostgreSQL local** (`localhost:5432/postgres`, usuário `postgres`, senha `password`), sem arquivo `.env`. Essa credencial padrão é pública e deve ser usada apenas no PostgreSQL local de desenvolvimento. Outros perfis podem usar senha fornecida para a sessão ou autenticação IAM do RDS por meio da AWS CLI já configurada no computador. Para IAM, um token novo é obtido ao abrir cada conexão física. Senhas de perfis adicionais e tokens não são armazenados no SQLite. Conexões remotas com senha exigem TLS com certificado e nome do servidor válidos; `localhost` pode usar conexão local sem TLS. A troca de perfil interrompe a coleta anterior antes de iniciar a nova; consultas, histórico, preferências, exportações e ações administrativas mantêm a identidade da origem.
 
 O objetivo é apoiar diagnóstico operacional. A visibilidade das métricas depende das permissões do usuário no PostgreSQL, da extensão `pg_stat_statements` para latência agregada e de uma fonte CSV acessível para eventos de log. O botão de encerramento de sessão exige confirmação e revalida a sessão antes da ação.
 
@@ -29,33 +29,31 @@ O caminho principal dos dados é `PostgreSQL → processo principal Electron →
 | `electron/certs/` | Bundle de autoridades certificadoras do Amazon RDS e sua procedência |
 | `lib/` e `types/` | Tipos, formatação e contratos usados pela interface |
 | `tests/` | Testes de migração, isolamento de perfis, autenticação, TLS, coleta e ações |
-| `specs/` | Especificações, planos e roteiros de validação das funcionalidades |
-| `.github/workflows/` | Build e testes automatizados para Windows |
+| `.agents/standards.md` | Padrões de arquitetura, segurança, interface e manutenção |
+| `.github/workflows/` | Build para Windows e Linux, geração de tag e release |
 
 As tecnologias principais são Electron 44, Next.js 16, React 19, TypeScript, Tailwind CSS 4, shadcn/ui, Recharts, `pg`, SQLite nativo do Electron e electron-builder. O nome público e o pacote são **DBMonitor**. Os identificadores internos legados `bdash://app/`, `window.bdash` e `bdash.sqlite` permanecem para compatibilidade com o histórico e o contrato já usado pelo aplicativo.
 
 ## Requisitos e conexão
 
-- Windows e Node.js 24 com npm para desenvolver e empacotar. O aplicativo instalado usa o Node incluído no Electron.
+- Windows ou Linux e Node.js 24 com npm para desenvolver e empacotar. O aplicativo instalado usa o Node incluído no Electron.
 - PostgreSQL acessível, com uma conta capaz de ler as views de estatísticas. Para encerrar sessões de outros usuários, a conta precisa da permissão adequada no PostgreSQL.
 - Para perfis Amazon RDS com autenticação IAM, instale e configure a AWS CLI no mesmo computador que executa o DBMonitor. Use a identidade AWS padrão ou selecione um perfil da CLI no painel. O DBMonitor gera uma autorização temporária a cada nova conexão; não solicita chaves AWS nem senha do banco nesse modo.
 - No RDS, habilite IAM DB authentication, conceda `rds-db:connect` à identidade AWS e configure o usuário PostgreSQL para autenticação IAM. A rede, VPN e grupos de segurança precisam permitir acesso ao endpoint e à porta. O teste de conexão valida o login e uma consulta simples; métricas administrativas dependem de permissões adicionais.
 - Logs CSV locais pertencem apenas à origem para a qual foram configurados. Uma instância RDS não disponibiliza automaticamente seu arquivo de logs como CSV local no computador; a seção Logs informa indisponibilidade quando não há fonte própria.
 
-Na raiz do projeto, crie `.env` a partir de `.env.example` e preencha `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER` e `PGPASSWORD`. O `.env` é ignorado pelo Git. A configuração inicial aponta para `localhost:5432/postgres`; o exemplo não contém a senha real.
+O primeiro perfil já vem configurado para `localhost:5432/postgres` com usuário `postgres` e senha `password`. Se o seu PostgreSQL local usar outra credencial, crie um perfil em **Configurações → Origens PostgreSQL**. Perfis antigos continuam no SQLite durante uma atualização; uma instalação existente mantém o perfil ativo que o usuário selecionou.
 
 Em **Configurações → Origens PostgreSQL**, cadastre endpoint RDS original, porta, região, banco, usuário PostgreSQL e a identidade AWS padrão ou o nome de um perfil da CLI. Use **Testar conexão** para validar token, TLS, login e consulta; depois selecione o perfil no cabeçalho. Uma falha no teste informa a etapa sem mostrar o token. Se a identidade SSO expirar, execute `aws sso login --profile NOME` no terminal e teste novamente. A geração do token usa a configuração da AWS CLI do computador, com validade de 15 minutos para abrir cada conexão; sessões já estabelecidas continuam enquanto o servidor permitir.
 
-O RDS IAM exige TLS com validação do nome do endpoint e da cadeia de certificados. O bundle CA oficial empacotado e seu procedimento de atualização estão documentados em [electron/certs/README.md](electron/certs/README.md). O perfil local legado continua usando a configuração `.env`; novos perfis por senha mantêm a senha apenas na memória da sessão. Trocar endpoint, banco, usuário ou modo de autenticação cria uma nova identidade histórica e arquiva a antiga. Renomear o perfil mantém seu histórico. Ao migrar uma base SQLite antiga, o aplicativo grava uma cópia `.backup` antes de alterar o esquema.
+O RDS IAM exige TLS com validação do nome do endpoint e da cadeia de certificados. O bundle CA oficial empacotado e seu procedimento de atualização estão documentados em [electron/certs/README.md](electron/certs/README.md). Novos perfis por senha mantêm a senha apenas na memória da sessão. Trocar endpoint, banco, usuário ou modo de autenticação cria uma nova identidade histórica e arquiva a antiga. Renomear o perfil mantém seu histórico. Ao migrar uma base SQLite antiga, o aplicativo grava uma cópia `.backup` antes de alterar o esquema.
 
 ```powershell
-if (-not (Test-Path .env)) { Copy-Item .env.example .env }
-# Edite .env com a conexão desejada.
 npm install
 npm run dev
 ```
 
-`npm run dev` inicia Next.js e abre a janela Electron. Não copie `.env` para `out/` ou para o instalador. Na versão empacotada, coloque o `.env` no diretório retornado por `app.getPath("userData")` do DBMonitor (normalmente `%APPDATA%\DBMonitor` no Windows). Se uma instalação anterior tiver `bdash.sqlite` em `%APPDATA%\bdash-electron`, o DBMonitor continuará usando esse diretório para preservar o histórico e o `.env`. No primeiro uso, host, porta, banco e usuário do perfil legado são gravados no SQLite; alterações posteriores nessas variáveis não mudam o perfil existente. A senha do perfil legado continua sendo lida de `PGPASSWORD` a cada nova conexão.
+`npm run dev` inicia Next.js e abre a janela Electron. O aplicativo não carrega arquivos `.env`. Se uma instalação anterior tiver `bdash.sqlite` em `%APPDATA%\bdash-electron`, o DBMonitor continuará usando esse diretório para preservar o histórico. O perfil inicial de instalações novas é criado no SQLite automaticamente.
 
 Para uma execução de teste com SQLite separado, defina `DBMONITOR_USER_DATA_DIR` como caminho absoluto para uma pasta vazia antes de iniciar o Electron. O aplicativo criará a pasta e armazenará ali seu SQLite; isso evita alterar o histórico principal durante a validação. A variável antiga `BDASH_USER_DATA_DIR` continua aceita para compatibilidade.
 
@@ -70,19 +68,22 @@ Para uma execução de teste com SQLite separado, defina `DBMONITOR_USER_DATA_DI
 | `npm start` | Abre o Electron usando `out/` já gerado |
 | `npm run verify` | Tipos, testes e build |
 | `npm run dist:win` | Gera instalador Windows em `release/` |
+| `npm run dist:linux` | Gera AppImage e pacote Debian em `release/` (em Linux) |
 | `npm run dist` | Build e pacote para a plataforma atual |
 
 ## Build no GitHub Actions
 
-O workflow [build-windows.yml](.github/workflows/build-windows.yml) roda em `push` e `pull_request` para `main` ou manualmente em **Actions → Build DBMonitor for Windows → Run workflow**. Em um runner Windows x64 com Node.js 24, executa `npm ci`, checagem de tipos, testes e `npm run dist:win -- --publish never`. Ao terminar, disponibiliza dois artefatos por 14 dias: o instalador `DBMonitor Setup <versão>.exe` e a pasta `win-unpacked/` completa, que contém `DBMonitor.exe` e os recursos necessários para executá-lo.
+Os workflows [build-windows.yml](.github/workflows/build-windows.yml) e [build-linux.yml](.github/workflows/build-linux.yml) rodam em `push` e `pull_request` para `main` ou manualmente. Usam Node.js 24, validam o código e disponibilizam artefatos por 14 dias: instalador e aplicativo descompactado no Windows; AppImage e `.deb` no Linux.
 
-O workflow não publica uma release, não assina o executável e não usa segredos da conta AWS ou do banco. Testes que exigem PostgreSQL real são ignorados sem `BDASH_TEST_PG`; para validar um RDS autorizado, siga o [roteiro da feature IAM](specs/002-configurar-conexoes-rds-iam/quickstart.md) fora do CI. A pasta `release/` e o arquivo `.env` ficam fora do Git.
+O workflow [release.yml](.github/workflows/release.yml) é manual e deve ser iniciado em `main` após atualizar e enviar a versão de `package.json`. Ele valida e empacota Windows e Linux, verifica que `v<versão>` ainda não existe, cria a tag e publica uma GitHub Release com `.exe`, `.AppImage` e `.deb`. A release não assina os pacotes e não usa segredos de AWS ou do banco. Testes que exigem PostgreSQL real são ignorados sem `BDASH_TEST_PG`. A pasta `release/` fica fora do Git.
 
 ## Fontes e significado dos dados
 
 | Informação | Fonte | Interpretação e limite |
 |---|---|---|
 | Conexões, usuários, estado, espera e consultas ativas | `pg_stat_activity` | Retrato atual. A duração é `agora − query_start` somente para `state='active'`; sessões ociosas não têm duração de consulta ativa. Texto da consulta e endereço do cliente só aparecem após revelação explícita. |
+| Horário de abertura da sessão | `pg_stat_activity.backend_start` | Exibido no fuso local com deslocamento UTC; é distinto do início da consulta ativa. |
+| Inventário e tamanho dos bancos | `pg_database`, `pg_stat_database`, `pg_database_size` | Metadados e conexões atuais são consultados ao abrir a tela Bancos. O tamanho em disco é calculado somente para a página visível e atualizado sob demanda; pode ficar indisponível sem privilégio `CONNECT` ou se a consulta exceder o tempo limite. |
 | Conexões por banco e contadores de commit, rollback, leitura e cache | `pg_stat_database` | `numbackends` é instantâneo; demais contadores são acumulados. Gráficos de taxa e ranking “transações no período” usam diferenças entre coletas do mesmo OID, sem atravessar reset ou lacuna. |
 | WAL e I/O | `pg_stat_wal`, `pg_stat_io` | Contadores cumulativos, apresentados com fonte e unidade. Tempos de I/O dependem de `track_io_timing`; quando desativado, não são tratados como latência medida. |
 | Tempo de coleta | Relógio local da coleta | Duração da consulta de monitoramento, separada da duração de uma query do usuário. |
@@ -109,6 +110,4 @@ A exportação CSV usa o recorte/filtros escolhidos, limita o volume, neutraliza
 4. Verifique que latência agregada e Logs indiquem pré-requisitos ausentes quando não configurados. Se houver `pg_stat_statements` e CSV no ambiente de teste, produza dados e confira os filtros e a paginação.
 5. Reinicie o aplicativo para verificar o histórico SQLite. Gere o instalador com `npm run dist:win`, abra-o e repita a leitura e a navegação.
 
-O roteiro inicial está em [quickstart.md](specs/001-postgres-observability-dashboard/quickstart.md). A validação de perfis PostgreSQL e RDS IAM está em [quickstart da feature 002](specs/002-configurar-conexoes-rds-iam/quickstart.md).
-
-Em 23/09/2026, `npm run typecheck`, `npm test`, `npm run build` e `npm run dist:win` concluíram. Foram 44 testes aprovados e 2 integrações PostgreSQL ignoradas sem banco de teste configurado. O executável empacotado abriu e alternou três perfis isolados; nenhum endpoint RDS real foi acessado nessa validação. A versão 0.1.1 usa o nome oficial DBMonitor no painel, na janela e no instalador `release/DBMonitor Setup 0.1.1.exe`. O identificador interno do instalador permanece estável para permitir atualização de instalações anteriores.
+Os padrões de manutenção estão em [.agents/standards.md](.agents/standards.md). O identificador interno do instalador permanece estável para permitir atualização de instalações anteriores.

@@ -25,13 +25,6 @@ protocol.registerSchemesAsPrivileged([
   { scheme: "bdash", privileges: { standard: true, secure: true, supportFetchAPI: true } },
 ]);
 
-function loadEnvironment() {
-  const envFile = !app.isPackaged
-    ? path.join(app.getAppPath(), ".env")
-    : path.join(app.getPath("userData"), ".env");
-  require("dotenv").config({ path: envFile });
-}
-
 function registerStaticProtocol() {
   const root = path.join(app.getAppPath(), "out");
   protocol.handle("bdash", (request) => {
@@ -90,7 +83,6 @@ app.whenReady().then(async () => {
   });
   fs.mkdirSync(userDataPath, { recursive: true });
   app.setPath("userData", userDataPath);
-  loadEnvironment();
   if (!isDev) registerStaticProtocol();
   storage = openStorage(app.getPath("userData"));
   controller = createProfileController({ storage, db, collectorFactory: (profile) => createCollector({
@@ -145,6 +137,18 @@ app.whenReady().then(async () => {
       storage.getSamples(context.profile.id, period(input)),
       { page: page(paging), maxGapMs: storage.getPreferences(context.profile.id).collectionIntervalSeconds * 3000 },
     ));
+  });
+  register("dashboard:database-inventory", async (paging) => {
+    const context = active();
+    const result = await db.listDatabaseInventory(page(paging));
+    controller.assertContext(context.sourceContext);
+    return withContext(context, { databases: {
+      state: result.sizeIncomplete ? "partial" : result.rows.length ? "ready" : "empty",
+      source: "pg_database + pg_stat_database + pg_database_size",
+      updatedAt: result.updatedAt,
+      reason: result.sizeIncomplete ? "Alguns tamanhos estão indisponíveis por permissão ou tempo limite." : undefined,
+      data: { rows: result.rows, total: result.total, nextCursor: result.nextCursor },
+    } });
   });
   register("dashboard:performance", async (input, paging) => {
     const context = active();

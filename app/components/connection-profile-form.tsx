@@ -90,7 +90,8 @@ export function ConnectionProfileForm({ profile, onSave, onCancel }: {
         </label>
         {draft.tlsCaMode === "custom" ? <label className="flex flex-col gap-1 text-sm font-medium sm:col-span-2">Caminho absoluto do arquivo CA<Input value={draft.tlsCaPath ?? ""} onChange={(event) => change("tlsCaPath", event.target.value)} placeholder="C:\\certificados\\rds-ca.pem" disabled={immutable} required /></label> : null}
         <p className="text-xs text-muted-foreground sm:col-span-2">O aplicativo usa a AWS CLI já configurada nesta máquina. Nenhuma credencial AWS ou senha é solicitada. A conexão RDS usa TLS com certificado validado.</p>
-      </> : <label className="flex flex-col gap-1 text-sm font-medium">Senha para esta sessão<Input type="password" autoComplete="off" value={password} onChange={(event) => setPassword(event.target.value)} placeholder={profile ? "Deixe vazio para manter a senha em memória" : "Senha do PostgreSQL"} /></label>}
+      </> : immutable ? <p className="text-xs text-muted-foreground sm:col-span-2">A conexão deste perfil inicial usa a senha local padrão. Para usar outra credencial, crie um perfil com senha de sessão.</p>
+        : <label className="flex flex-col gap-1 text-sm font-medium">Senha para esta sessão<Input type="password" autoComplete="off" value={password} onChange={(event) => setPassword(event.target.value)} placeholder={profile ? "Deixe vazio para manter a senha em memória" : "Senha do PostgreSQL"} /></label>}
     </div>
     {test ? <p role="status" className="rounded-lg border bg-muted/40 p-3 text-sm"><strong>{test.status === "success" ? "Consulta concluída" : `Falha na etapa ${test.stage}`}</strong> · {test.message}<span className="block text-xs text-muted-foreground">{test.status === "success" ? "A coleta de métricas pode exigir permissões adicionais." : stageHint[test.stage]}</span></p> : null}
     {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}

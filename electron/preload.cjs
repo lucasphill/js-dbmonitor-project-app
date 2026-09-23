@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld("bdash", {
   getSessions: (filters) => invoke("dashboard:sessions", filters),
   revealSessionDetails: (identity) => invoke("dashboard:session-details", identity),
   getDatabaseActivity: (period, page) => invoke("dashboard:database-activity", period, page),
+  getDatabaseInventory: (page) => invoke("dashboard:database-inventory", page),
   getPerformance: (period, page) => invoke("dashboard:performance", period, page),
   getLogs: (filters) => invoke("dashboard:logs", filters),
   getDiagnostics: () => invoke("dashboard:diagnostics"),

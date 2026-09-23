@@ -72,6 +72,7 @@ export function SessionsTable({
             <TableHead>{sortHeader("Usuário", "user")}</TableHead>
             <TableHead>Aplicação</TableHead>
             <TableHead>{sortHeader("Estado", "state")}</TableHead>
+            <TableHead>{sortHeader("Conectada em", "startedAt")}</TableHead>
             <TableHead>Consulta ativa</TableHead>
             <TableHead className="text-right">{sortHeader("Duração", "duration")}</TableHead>
             <TableHead>Espera</TableHead>
@@ -82,12 +83,13 @@ export function SessionsTable({
               <TableCell className="tabular-nums">{formatNumber(row.pid)}</TableCell>
               <TableCell>{row.database || "—"}</TableCell><TableCell>{row.user || "—"}</TableCell><TableCell>{row.application || "—"}</TableCell>
               <TableCell><Badge variant={row.state === "active" ? "default" : "secondary"}>{stateLabel(row.state)}</Badge></TableCell>
+              <TableCell className="whitespace-nowrap text-xs tabular-nums">{formatTimestamp(row.backendStart)}</TableCell>
               <TableCell className="text-xs text-muted-foreground">{row.state === "active" ? "Oculta por padrão" : "—"}</TableCell>
               <TableCell className="text-right tabular-nums" title={row.queryStartedAt ? `Início: ${formatTimestamp(row.queryStartedAt)}` : undefined}>{formatDuration(row.activeDurationMs)}</TableCell>
               <TableCell>{row.waitEvent ? <Badge variant="secondary">{row.waitEventType}: {row.waitEvent}</Badge> : "—"}</TableCell>
               <TableCell><Button type="button" variant="outline" size="sm" onClick={() => onSelect(row)}>Detalhes</Button></TableCell>
             </TableRow>)}
-            {rows.length === 0 ? <TableRow><TableCell colSpan={9} className="py-10 text-center text-muted-foreground">{result?.sessions.reason || "Nenhuma sessão corresponde aos filtros."}</TableCell></TableRow> : null}
+            {rows.length === 0 ? <TableRow><TableCell colSpan={10} className="py-10 text-center text-muted-foreground">{result?.sessions.reason || "Nenhuma sessão corresponde aos filtros."}</TableCell></TableRow> : null}
           </TableBody>
         </Table>
       </div>

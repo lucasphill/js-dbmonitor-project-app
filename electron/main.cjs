@@ -13,7 +13,7 @@ const { buildPerformance } = require("./performance.cjs");
 const { ingestCsvLog } = require("./logs.cjs");
 const { COLUMNS, writeCsv } = require("./export.cjs");
 const { IpcInputError, wrapHandler, period, page, profileId, sourceContext, confirmation, sessionFilters,
-  sessionActionIdentity, logFilters, preferences, exportRequest } = require("./ipc.cjs");
+  sessionActionIdentity, databaseInventoryFilters, logFilters, preferences, exportRequest } = require("./ipc.cjs");
 
 const isDev = !app.isPackaged && process.argv.includes("--dev");
 let storage;
@@ -138,9 +138,9 @@ app.whenReady().then(async () => {
       { page: page(paging), maxGapMs: storage.getPreferences(context.profile.id).collectionIntervalSeconds * 3000 },
     ));
   });
-  register("dashboard:database-inventory", async (paging) => {
+  register("dashboard:database-inventory", async (input) => {
     const context = active();
-    const result = await db.listDatabaseInventory(page(paging));
+    const result = await db.listDatabaseInventory(databaseInventoryFilters(input));
     controller.assertContext(context.sourceContext);
     return withContext(context, { databases: {
       state: result.sizeIncomplete ? "partial" : result.rows.length ? "ready" : "empty",

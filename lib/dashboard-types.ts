@@ -208,6 +208,16 @@ export interface DatabaseInventoryRow {
   template: boolean;
 }
 
+export interface DatabaseInventoryFilters {
+  search?: string;
+  owner?: string;
+  encoding?: string;
+  status?: "available" | "blocked" | "template";
+  sortBy?: "name" | "size" | "owner" | "encoding" | "collation" | "connections" | "connectionLimit" | "status";
+  sortDirection?: "asc" | "desc";
+  page: Page;
+}
+
 export interface DatabaseInventory {
   sourceContext?: SourceContext;
   databases: DataBlock<Paginated<DatabaseInventoryRow>>;
@@ -323,7 +333,7 @@ export interface DashboardApi {
   getSessions(filters: SessionFilters): Promise<SessionsResult>;
   revealSessionDetails(identity: SessionIdentity): Promise<SessionDetails>;
   getDatabaseActivity(period: Period, page: Page): Promise<DatabaseActivity>;
-  getDatabaseInventory(page: Page): Promise<DatabaseInventory>;
+  getDatabaseInventory(filters: DatabaseInventoryFilters): Promise<DatabaseInventory>;
   getPerformance(period: Period, page: Page): Promise<Performance>;
   getLogs(filters: LogFilters): Promise<DataBlock<Paginated<LogEvent>>>;
   getDiagnostics(): Promise<Diagnostics>;

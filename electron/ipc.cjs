@@ -3,6 +3,7 @@ const { ProfileInputError } = require("./connection-profiles.cjs");
 
 const MAX_PERIOD_MS = 7 * 24 * 60 * 60 * 1000;
 const SORT_COLUMNS = new Set(["duration", "startedAt", "database", "user", "state", "pid"]);
+const DATABASE_SORT_COLUMNS = new Set(["name", "size", "owner", "encoding", "collation", "connections", "connectionLimit", "status"]);
 const DATASETS = new Set(["database-activity", "sessions", "logs"]);
 
 class IpcInputError extends Error {
@@ -110,6 +111,24 @@ function sessionFilters(value = {}) {
   };
 }
 
+function databaseInventoryFilters(value = {}) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new IpcInputError("Filtros de bancos inválidos");
+  const sortBy = value.sortBy === undefined ? "name" : string(value.sortBy, "Ordenação", 30);
+  if (!DATABASE_SORT_COLUMNS.has(sortBy)) throw new IpcInputError("Ordenação inválida");
+  const sortDirection = value.sortDirection === undefined ? "asc" : string(value.sortDirection, "Direção", 4);
+  if (sortDirection !== "asc" && sortDirection !== "desc") throw new IpcInputError("Direção inválida");
+  const status = value.status === undefined ? undefined : string(value.status, "Estado", 20);
+  if (status !== undefined && !["available", "blocked", "template"].includes(status)) {
+    throw new IpcInputError("Estado inválido");
+  }
+  return {
+    search: string(value.search, "Busca", 200),
+    owner: string(value.owner, "Proprietário", 128),
+    encoding: string(value.encoding, "Codificação", 64),
+    status, sortBy, sortDirection, page: page(value.page),
+  };
+}
+
 function logFilters(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new IpcInputError("Filtros inválidos");
   return {
@@ -185,4 +204,4 @@ function wrapHandler(dev, handler) {
 }
 
 module.exports = { IpcInputError, assertOrigin, period, page, profileId, sourceContext, confirmation,
-  sessionIdentity, sessionActionIdentity, sessionFilters, logFilters, preferences, exportRequest, safeError, wrapHandler };
+  sessionIdentity, sessionActionIdentity, sessionFilters, databaseInventoryFilters, logFilters, preferences, exportRequest, safeError, wrapHandler };

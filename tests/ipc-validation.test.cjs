@@ -14,6 +14,12 @@ test("IPC accepts a bounded period and rejects an oversized range", () => {
 test("IPC rejects unbounded pages and unknown sort columns", () => {
   assert.throws(() => ipc.page({ limit: 201 }), /Limite da página/);
   assert.throws(() => ipc.sessionFilters({ page: { limit: 50 }, sortBy: "query" }), /Ordenação inválida/);
+  assert.throws(() => ipc.databaseInventoryFilters({ page: { limit: 50 }, sortBy: "query" }), /Ordenação inválida/);
+  assert.throws(() => ipc.databaseInventoryFilters({ page: { limit: 50 }, status: "deleted" }), /Estado inválido/);
+  assert.deepEqual(ipc.databaseInventoryFilters({ search: "  app  ", sortBy: "size", sortDirection: "desc", page: { limit: 10 } }), {
+    search: "app", owner: undefined, encoding: undefined, status: undefined,
+    sortBy: "size", sortDirection: "desc", page: { limit: 10, cursor: "0" },
+  });
 });
 
 test("IPC requires PID and session start together", () => {

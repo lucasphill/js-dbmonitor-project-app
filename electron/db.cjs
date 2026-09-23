@@ -328,17 +328,56 @@ async function collectSnapshot() {
 }
 
 /** Current database catalog. Disk sizes are measured only for the requested page. */
+const DATABASE_INVENTORY_SORT = Object.freeze({
+  name: "d.datname",
+  size: "measured.size_bytes",
+  owner: "pg_get_userbyid(d.datdba)",
+  encoding: "pg_encoding_to_char(d.encoding)",
+  collation: "d.datcollate",
+  connections: "COALESCE(s.numbackends, 0)",
+  connectionLimit: "d.datconnlimit",
+  status: "CASE WHEN NOT d.datallowconn THEN 0 WHEN d.datistemplate THEN 1 ELSE 2 END",
+});
+
 async function listDatabaseInventory(input = {}, options = {}) {
-  const limit = input.limit ?? 50;
-  const offset = input.offset ?? Number(input.cursor ?? 0);
+  const selection = input.page || input;
+  const limit = selection.limit ?? 50;
+  const offset = selection.offset ?? Number(selection.cursor ?? 0);
   if (!Number.isInteger(limit) || limit < 1 || limit > 200 ||
       !Number.isSafeInteger(offset) || offset < 0 || offset > 10_000_000) {
     throw new TypeError("Invalid database inventory page");
   }
+  const sortBy = input.sortBy ?? "name";
+  if (!Object.hasOwn(DATABASE_INVENTORY_SORT, sortBy)) throw new TypeError("Invalid database inventory sort");
+  const direction = input.sortDirection ?? "asc";
+  if (direction !== "asc" && direction !== "desc") throw new TypeError("Invalid database inventory direction");
+  if (input.status !== undefined && !["available", "blocked", "template"].includes(input.status)) {
+    throw new TypeError("Invalid database inventory status");
+  }
+  const conditions = [];
+  const values = [];
+  for (const [field, column] of [["search", "(d.datname ILIKE $PARAM ESCAPE '\\' OR pg_get_userbyid(d.datdba) ILIKE $PARAM ESCAPE '\\')"],
+    ["owner", "pg_get_userbyid(d.datdba) ILIKE $PARAM ESCAPE '\\'"],
+    ["encoding", "pg_encoding_to_char(d.encoding) ILIKE $PARAM ESCAPE '\\'"]]) {
+    const value = input[field];
+    if (value === undefined || value === "") continue;
+    if (typeof value !== "string" || value.length > 200) throw new TypeError("Invalid database inventory filter");
+    values.push(`%${value.replace(/[\\%_]/g, "\\$&")}%`);
+    conditions.push(column.replaceAll("$PARAM", `$${values.length}`));
+  }
+  if (input.status === "available") conditions.push("d.datallowconn AND NOT d.datistemplate");
+  if (input.status === "blocked") conditions.push("NOT d.datallowconn");
+  if (input.status === "template") conditions.push("d.datallowconn AND d.datistemplate");
+  const predicate = conditions.length ? conditions.map((condition) => `(${condition})`).join(" AND ") : "TRUE";
+  const sizeSort = sortBy === "size";
+  const sizeJoin = sizeSort ? `LEFT JOIN LATERAL (SELECT pg_database_size(d.oid) AS size_bytes
+    WHERE (has_database_privilege(d.oid, 'CONNECT') OR
+      pg_has_role(current_user, 'pg_read_all_stats', 'MEMBER'))) measured ON TRUE` : "";
+  const order = `${DATABASE_INVENTORY_SORT[sortBy]} ${direction.toUpperCase()} NULLS LAST, d.datname ASC, d.oid ASC`;
   const owned = !options.client;
   const client = options.client || await getPool().connect();
   try {
-    const count = await client.query("SELECT count(*) AS total FROM pg_database");
+    const count = await client.query(`SELECT count(*) AS total FROM pg_database d WHERE ${predicate}`, values);
     const total = safeNumber(count.rows[0]?.total) ?? 0;
     const catalog = await client.query(`SELECT d.oid, d.datname AS name,
       pg_get_userbyid(d.datdba) AS owner, pg_encoding_to_char(d.encoding) AS encoding,
@@ -346,10 +385,11 @@ async function listDatabaseInventory(input = {}, options = {}) {
       d.datconnlimit AS connection_limit, d.datistemplate AS template,
       (has_database_privilege(d.oid, 'CONNECT') OR
         pg_has_role(current_user, 'pg_read_all_stats', 'MEMBER')) AS can_measure_size,
-      COALESCE(s.numbackends, 0) AS connections
+      COALESCE(s.numbackends, 0) AS connections${sizeSort ? ", measured.size_bytes" : ""}
       FROM pg_database d LEFT JOIN pg_stat_database s ON s.datid = d.oid
-      ORDER BY d.datname LIMIT $1 OFFSET $2`, [limit, offset]);
-    const measurable = catalog.rows.filter((row) => row.can_measure_size).map((row) => row.oid);
+      ${sizeJoin} WHERE ${predicate}
+      ORDER BY ${order} LIMIT $${values.length + 1} OFFSET $${values.length + 2}`, [...values, limit, offset]);
+    const measurable = sizeSort ? [] : catalog.rows.filter((row) => row.can_measure_size).map((row) => row.oid);
     const sizes = new Map();
     if (measurable.length) {
       try {
@@ -360,7 +400,7 @@ async function listDatabaseInventory(input = {}, options = {}) {
     }
     const rows = catalog.rows.map((row) => ({
       oid: Number(row.oid), name: row.name,
-      sizeBytes: sizes.get(Number(row.oid)) ?? null,
+      sizeBytes: sizeSort ? safeNumber(row.size_bytes) : sizes.get(Number(row.oid)) ?? null,
       owner: row.owner, encoding: row.encoding, collation: row.collation,
       connections: safeNumber(row.connections) ?? 0,
       connectionLimit: Number(row.connection_limit),

@@ -74,7 +74,7 @@ Para uma execução de teste com SQLite separado, defina `DBMONITOR_USER_DATA_DI
 
 ## Build no GitHub Actions
 
-O workflow [build-windows.yml](.github/workflows/build-windows.yml) roda em `push` e `pull_request` para `main` ou manualmente em **Actions → Build DBMonitor for Windows → Run workflow**. Em um runner Windows x64 com Node.js 24, executa `npm ci`, checagem de tipos, testes e `npm run dist:win`. Ao terminar, disponibiliza dois artefatos por 14 dias: o instalador `DBMonitor Setup <versão>.exe` e a pasta `win-unpacked/` completa, que contém `DBMonitor.exe` e os recursos necessários para executá-lo.
+O workflow [build-windows.yml](.github/workflows/build-windows.yml) roda em `push` e `pull_request` para `main` ou manualmente em **Actions → Build DBMonitor for Windows → Run workflow**. Em um runner Windows x64 com Node.js 24, executa `npm ci`, checagem de tipos, testes e `npm run dist:win -- --publish never`. Ao terminar, disponibiliza dois artefatos por 14 dias: o instalador `DBMonitor Setup <versão>.exe` e a pasta `win-unpacked/` completa, que contém `DBMonitor.exe` e os recursos necessários para executá-lo.
 
 O workflow não publica uma release, não assina o executável e não usa segredos da conta AWS ou do banco. Testes que exigem PostgreSQL real são ignorados sem `BDASH_TEST_PG`; para validar um RDS autorizado, siga o [roteiro da feature IAM](specs/002-configurar-conexoes-rds-iam/quickstart.md) fora do CI. A pasta `release/` e o arquivo `.env` ficam fora do Git.
 

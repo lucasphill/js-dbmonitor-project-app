@@ -37,4 +37,4 @@
 - Exiba origem, unidade, período e estado dos indicadores. Não apresente ausência de permissão ou fonte como zero medido.
 - Mantenha a navegação e as tabelas utilizáveis na largura mínima da janela; permita rolagem horizontal em tabelas largas.
 - Para mudanças de código, execute `npm run verify`. Para empacotamento, valide o alvo no sistema operacional correspondente; builds de Linux são executados pelo GitHub Actions em Ubuntu.
-- Workflows de build apenas disponibilizam artefatos. `release.yml`, acionado manualmente em `main`, valida ambos os pacotes, cria `v<versão>` a partir de `package.json` e publica a GitHub Release. Atualize a versão antes de executar o release.
+- Workflows de build apenas disponibilizam artefatos. `release.yml` roda em pushes para `main` e manualmente; se `v<versão>` ainda não existir, valida ambos os pacotes, cria a tag a partir de `package.json` e publica a GitHub Release. Atualize a versão antes de cada nova publicação. Os instaladores pertencem à Release, não ao registry GitHub Packages.

@@ -1,6 +1,8 @@
 name: Release DBMonitor
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -11,8 +13,60 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  prepare:
+    name: Check release version
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.version.outputs.publish }}
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: Check package version and remote tag
+        id: version
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid package version: $version" >&2
+            exit 1
+          fi
+          tag="v$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          set +e
+          git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null
+          lookup_status=$?
+          set -e
+          if [ "$lookup_status" -eq 0 ]; then
+            if [ "$EVENT_NAME" = workflow_dispatch ]; then
+              echo "Tag already exists: $tag. Update package.json before publishing another release." >&2
+              exit 1
+            fi
+            echo "Version $version is already published; skipping release."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          elif [ "$lookup_status" -eq 2 ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Could not check remote tags (exit $lookup_status)." >&2
+            exit "$lookup_status"
+          fi
+
   package:
-    if: github.ref == 'refs/heads/main'
+    needs: prepare
+    if: needs.prepare.outputs.publish == 'true'
     name: Package ${{ matrix.platform }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 50
@@ -65,7 +119,8 @@ jobs:
 
   publish:
     name: Tag and publish release
-    needs: package
+    needs: [prepare, package]
+    if: needs.prepare.outputs.publish == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -84,32 +139,18 @@ jobs:
           path: release-assets
 
       - name: Validate version and packages
-        id: version
         shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          version=$(node -p "require('./package.json').version")
-          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-            echo "Invalid package version: $version" >&2
-            exit 1
-          fi
-          tag="v$version"
-          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
-            echo "Tag already exists: $tag" >&2
-            exit 1
-          fi
-          test -f "release-assets/DBMonitor Setup $version.exe"
+          test -f "release-assets/DBMonitor Setup $RELEASE_VERSION.exe"
           find release-assets -maxdepth 1 -name '*.AppImage' -print -quit | grep -q .
           find release-assets -maxdepth 1 -name '*.deb' -print -quit | grep -q .
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       - name: Create version tag and publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
         shell: bash
         run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git tag -a "$RELEASE_TAG" -m "DBMonitor $RELEASE_TAG"
-          git push origin "$RELEASE_TAG"
-          gh release create "$RELEASE_TAG" release-assets/* --verify-tag --generate-notes --title "DBMonitor $RELEASE_TAG"
+          gh release create "$RELEASE_TAG" release-assets/* --target "$GITHUB_SHA" --generate-notes --title "DBMonitor $RELEASE_TAG"

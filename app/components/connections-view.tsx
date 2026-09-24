@@ -13,10 +13,11 @@ import { SessionsChart } from "./sessions-chart"
 import { SessionsTable } from "./sessions-table"
 import { SourceStatus } from "./source-status"
 import { TerminateSessionDialog } from "./terminate-session-dialog"
+import { ExplanationLabel, type ExplainAction } from "./explanation-info"
 
 const initialFilters: SessionFilters = { sortBy: "duration", sortDirection: "desc", page: { limit: 25 } }
 
-export function ConnectionsView() {
+export function ConnectionsView({ onExplain }: { onExplain: ExplainAction }) {
   const [filters, setFilters] = useState<SessionFilters>(initialFilters)
   const [previousCursors, setPreviousCursors] = useState<(string | undefined)[]>([])
   const [selected, setSelected] = useState<SessionRow | null>(null)
@@ -108,15 +109,15 @@ export function ConnectionsView() {
     {operation ? <p role="status" className="rounded-lg border bg-card p-3 text-sm">{operation.message}</p> : null}
     {exportMessage ? <p role="status" className="rounded-lg border bg-card p-3 text-sm">{exportMessage}</p> : null}
     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Resumo de conexões">
-      {[
-        { label: "Total", value: result?.sessions.data?.total, icon: Users },
-        { label: "Ativas", value: result ? active : null, icon: Users },
-        { label: "Ociosas", value: result ? idle : null, icon: Clock3 },
-        { label: "Em espera nesta página", value: result ? waitingOnPage : null, icon: Clock3 },
-      ].map(({ label, value, icon: Icon }) => <Card key={label} size="sm"><CardHeader><CardTitle className="flex items-center gap-2 text-sm"><Icon className="size-4 text-primary" aria-hidden />{label}</CardTitle></CardHeader><CardContent><strong className="text-2xl font-bold tabular-nums">{formatNumber(value)}</strong></CardContent></Card>)}
+      {([
+        { label: "Total", value: result?.sessions.data?.total, icon: Users, topicId: "session-total" },
+        { label: "Ativas", value: result ? active : null, icon: Users, topicId: "session-active" },
+        { label: "Ociosas", value: result ? idle : null, icon: Clock3, topicId: "session-idle" },
+        { label: "Em espera nesta página", value: result ? waitingOnPage : null, icon: Clock3, topicId: "session-waiting-page" },
+      ] as const).map(({ label, value, icon: Icon, topicId }) => <Card key={label} size="sm"><CardHeader><CardTitle className="flex items-center gap-2 text-sm"><Icon className="size-4 text-primary" aria-hidden /><ExplanationLabel label={label} topicId={topicId} onExplain={onExplain} /></CardTitle></CardHeader><CardContent><strong className="text-2xl font-bold tabular-nums">{formatNumber(value)}</strong></CardContent></Card>)}
     </section>
-    {result ? <SessionsChart result={result} /> : null}
-    <SessionsTable result={result} filters={filters} onFilter={changeFilters} onSort={sortBy} onPrevious={previousPage} onNext={nextPage} canPrevious={previousCursors.length > 0} selected={selected} onSelect={select} />
+    {result ? <SessionsChart result={result} onExplain={onExplain} /> : null}
+    <SessionsTable result={result} filters={filters} onFilter={changeFilters} onSort={sortBy} onPrevious={previousPage} onNext={nextPage} canPrevious={previousCursors.length > 0} selected={selected} onSelect={select} onExplain={onExplain} />
     {result ? <SourceStatus block={result.sessions} /> : null}
 
     <Sheet open={sheetOpen} onOpenChange={(open) => { setSheetOpen(open); if (!open) { setSelected(null); setDetails(null); setDetailError(null) } }}>
@@ -125,16 +126,16 @@ export function ConnectionsView() {
         {selected ? <div className="flex flex-1 flex-col gap-5 px-4 pb-4">
           <div className="flex gap-2"><Badge variant={selected.state === "active" ? "default" : "secondary"}>{selected.state || "Estado desconhecido"}</Badge>{selected.waitEvent ? <Badge variant="secondary">Em espera: {selected.waitEvent}</Badge> : null}</div>
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
-            <dt className="text-muted-foreground">PID</dt><dd>{selected.pid}</dd>
-            <dt className="text-muted-foreground">Banco</dt><dd>{selected.database || "—"}</dd>
-            <dt className="text-muted-foreground">Usuário</dt><dd>{selected.user || "—"}</dd>
-            <dt className="text-muted-foreground">Aplicação</dt><dd>{selected.application || "—"}</dd>
-            <dt className="text-muted-foreground">Início da conexão</dt><dd>{formatTimestamp(selected.backendStart)}</dd>
-            <dt className="text-muted-foreground">Início da consulta</dt><dd>{formatTimestamp(selected.queryStartedAt)}</dd>
-            <dt className="text-muted-foreground">Duração ativa</dt><dd>{formatDuration(selected.activeDurationMs)}</dd>
-            <dt className="text-muted-foreground">Espera</dt><dd>{selected.waitEventType && selected.waitEvent ? `${selected.waitEventType}: ${selected.waitEvent}` : "—"}</dd>
+            <dt className="text-muted-foreground"><ExplanationLabel label="PID" topicId="session-pid" onExplain={onExplain} /></dt><dd>{selected.pid}</dd>
+            <dt className="text-muted-foreground"><ExplanationLabel label="Banco" topicId="session-database" onExplain={onExplain} /></dt><dd>{selected.database || "—"}</dd>
+            <dt className="text-muted-foreground"><ExplanationLabel label="Usuário" topicId="session-user" onExplain={onExplain} /></dt><dd>{selected.user || "—"}</dd>
+            <dt className="text-muted-foreground"><ExplanationLabel label="Aplicação" topicId="session-application" onExplain={onExplain} /></dt><dd>{selected.application || "—"}</dd>
+            <dt className="text-muted-foreground"><ExplanationLabel label="Início da conexão" topicId="session-start" onExplain={onExplain} /></dt><dd>{formatTimestamp(selected.backendStart)}</dd>
+            <dt className="text-muted-foreground"><ExplanationLabel label="Início da consulta" topicId="session-query-start" onExplain={onExplain} /></dt><dd>{formatTimestamp(selected.queryStartedAt)}</dd>
+            <dt className="text-muted-foreground"><ExplanationLabel label="Duração ativa" topicId="active-query-duration" onExplain={onExplain} /></dt><dd>{formatDuration(selected.activeDurationMs)}</dd>
+            <dt className="text-muted-foreground"><ExplanationLabel label="Espera" topicId="session-wait" onExplain={onExplain} /></dt><dd>{selected.waitEventType && selected.waitEvent ? `${selected.waitEventType}: ${selected.waitEvent}` : "—"}</dd>
           </dl>
-          <div className="flex flex-col gap-2 rounded-lg border p-3"><strong className="text-sm">Consulta e cliente</strong>
+          <div className="flex flex-col gap-2 rounded-lg border p-3"><strong className="text-sm"><ExplanationLabel label="Consulta e cliente" topicId="session-sensitive-details" onExplain={onExplain} /></strong>
             {details?.state === "ready" ? <><p className="break-all rounded bg-muted p-2 font-mono text-xs">{details.query || "Consulta não disponível"}</p><p className="text-xs text-muted-foreground">Cliente: {details.clientAddress || "Não disponível"}</p></> : <p className="text-xs text-muted-foreground">Ocultos por padrão. Revele apenas quando necessário para investigar esta sessão.</p>}
             {detailError ? <p role="alert" className="text-xs text-destructive">{detailError}</p> : null}
             {details?.state !== "ready" ? <Button type="button" variant="outline" size="sm" onClick={() => void revealDetails()} disabled={detailLoading}>{detailLoading ? "Consultando…" : "Revelar detalhes"}</Button> : null}

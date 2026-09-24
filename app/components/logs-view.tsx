@@ -13,6 +13,7 @@ import { formatNumber, formatTimestamp } from "@/lib/format"
 import type { HistoryPreset } from "@/app/hooks/use-history"
 import { PeriodSelector } from "./period-selector"
 import { SourceStatus } from "./source-status"
+import { ExplanationLabel, type ExplainAction } from "./explanation-info"
 
 const PAGE_SIZE = 50
 const WINDOW_MS = { "1h": 3_600_000, "24h": 86_400_000, "7d": 604_800_000 } as const
@@ -38,7 +39,7 @@ function unavailableReason(block: DataBlock<Paginated<LogEvent>>): string {
 }
 
 /** Self-contained Logs section. The selected period and filters are sent only to the named Electron bridge method. */
-export function LogsView({ onConfigure }: { onConfigure?: () => void }) {
+export function LogsView({ onConfigure, onExplain }: { onConfigure?: () => void; onExplain: ExplainAction }) {
   const [preset, setPreset] = useState<HistoryPreset>("24h")
   const [custom, setCustom] = useState<Period>(() => currentPeriod("24h", { from: "", to: "" }))
   const [draft, setDraft] = useState<LogCriteria>(EMPTY_CRITERIA)
@@ -188,7 +189,7 @@ export function LogsView({ onConfigure }: { onConfigure?: () => void }) {
     <Card>
       <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3">
         <div className="flex flex-col gap-1">
-          <CardTitle className="text-base">Eventos registrados</CardTitle>
+          <CardTitle className="text-base"><ExplanationLabel label="Eventos registrados" topicId="log-events" onExplain={onExplain} /></CardTitle>
           <CardDescription>{unavailable ? "Fonte de logs indisponível" : `${formatNumber(total)} evento(s) para os filtros atuais`}</CardDescription>
         </div>
         {block ? <SourceStatus block={block} /> : null}
@@ -203,12 +204,12 @@ export function LogsView({ onConfigure }: { onConfigure?: () => void }) {
         </div> : canShowRows ? <div className="overflow-x-auto rounded-lg border"><Table>
           <TableCaption>Eventos PostgreSQL paginados. Horários exibidos no fuso local.</TableCaption>
           <TableHeader><TableRow>
-            <TableHead className="whitespace-nowrap">Horário</TableHead>
-            <TableHead>Severidade</TableHead>
-            <TableHead>Banco</TableHead>
-            <TableHead>Usuário</TableHead>
-            <TableHead className="text-right">PID</TableHead>
-            <TableHead>Mensagem</TableHead>
+            <TableHead className="whitespace-nowrap"><ExplanationLabel label="Horário" topicId="log-event-time" onExplain={onExplain} /></TableHead>
+            <TableHead><ExplanationLabel label="Severidade" topicId="log-severity" onExplain={onExplain} /></TableHead>
+            <TableHead><ExplanationLabel label="Banco" topicId="log-database" onExplain={onExplain} /></TableHead>
+            <TableHead><ExplanationLabel label="Usuário" topicId="log-user" onExplain={onExplain} /></TableHead>
+            <TableHead className="text-right"><ExplanationLabel label="PID" topicId="log-pid" onExplain={onExplain} /></TableHead>
+            <TableHead><ExplanationLabel label="Mensagem" topicId="log-message" onExplain={onExplain} /></TableHead>
           </TableRow></TableHeader>
           <TableBody>{rows.map((event) => <TableRow key={event.id}>
             <TableCell className="whitespace-nowrap text-xs tabular-nums"><time dateTime={event.eventAt}>{formatTimestamp(event.eventAt)}</time></TableCell>

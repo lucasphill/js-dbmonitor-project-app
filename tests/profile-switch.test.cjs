@@ -118,3 +118,29 @@ test("a new origin does not receive the old origin's session password", async ()
   assert.deepEqual(configured.at(-1), { host: "db-b.example.com", password: undefined });
   await controller.stop();
 });
+
+test("a new process starts the selected session-password profile without the previous password", async () => {
+  const profile = {
+    id: 7, label: "Produção", host: "db.example.com", port: 5432, database: "postgres",
+    dbUser: "monitor", authMode: "session_password", awsRegion: null, awsProfile: null,
+    tlsCaMode: null, tlsCaPath: null, archivedAt: null,
+  };
+  const storage = { getActiveProfileId: () => 7, getProfile: () => profile };
+  const configured = [];
+  const db = {
+    setActiveProfile: async (_profile, password) => { configured.push(password); },
+    closeDatabase: async () => {},
+  };
+  const create = () => createProfileController({ storage, db, collectorFactory: () => ({
+    start() {}, async stopAndWait() {},
+  }) });
+  const priorSession = create();
+  await priorSession.start();
+  await priorSession.setPassword(7, "secret-from-previous-session");
+  await priorSession.stop();
+
+  const afterLogin = create();
+  await afterLogin.start();
+  assert.equal(configured.at(-1), undefined);
+  await afterLogin.stop();
+});

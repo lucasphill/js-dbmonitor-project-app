@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import type { CapabilityMap, ConnectionProfile, Diagnostics, ExportDataset, Preferences, ProfileDraft, SourceContext } from "@/lib/dashboard-types"
+import type { CapabilityMap, ConnectionProfile, Diagnostics, ExportDataset, Preferences, ProfileDraft, SourceContext, StartupState } from "@/lib/dashboard-types"
 import { formatAge, formatBytes, formatTimestamp } from "@/lib/format"
 import { ConnectionProfileForm } from "./connection-profile-form"
 import { profileDescription } from "./connection-profile-selector"
@@ -51,6 +51,10 @@ export function DiagnosticsView({ profiles, source, onProfilesChanged, onSelectP
   const [exportWindow, setExportWindow] = useState<ExportWindow>("1h")
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [startupState, setStartupState] = useState<StartupState | null>(null)
+  const [startupLoading, setStartupLoading] = useState(true)
+  const [startupBusy, setStartupBusy] = useState(false)
+  const [startupError, setStartupError] = useState<string | null>(null)
   const activeProfile = profiles.find((profile) => profile.id === source?.profileId)
 
   async function saveProfile(draft: ProfileDraft, password?: string) {
@@ -105,6 +109,49 @@ export function DiagnosticsView({ profiles, source, onProfilesChanged, onSelectP
     return () => { active = false; window.clearInterval(timer) }
   }, [reloadDiagnostics])
 
+  useEffect(() => {
+    let active = true
+    async function loadStartup() {
+      if (!window.bdash) {
+        setStartupState({ state: "unavailable", reason: "Disponível apenas no aplicativo instalado para Windows." })
+        setStartupLoading(false)
+        return
+      }
+      try {
+        const state = await window.bdash.getStartupState()
+        if (active) setStartupState(state)
+      } catch (cause) {
+        if (active) {
+          setStartupState({ state: "unavailable" })
+          setStartupError(cause instanceof Error ? cause.message : "Não foi possível consultar o início automático.")
+        }
+      } finally { if (active) setStartupLoading(false) }
+    }
+    void loadStartup()
+    return () => { active = false }
+  }, [])
+
+  async function refreshStartup() {
+    if (!window.bdash) return
+    setStartupLoading(true); setStartupError(null)
+    try { setStartupState(await window.bdash.getStartupState()) }
+    catch (cause) {
+      setStartupState({ state: "unavailable" })
+      setStartupError(cause instanceof Error ? cause.message : "Não foi possível consultar o início automático.")
+    } finally { setStartupLoading(false) }
+  }
+
+  async function changeStartup(enabled: boolean) {
+    if (!window.bdash || startupBusy) return
+    setStartupBusy(true); setStartupError(null)
+    try { setStartupState(await window.bdash.setStartupEnabled(enabled)) }
+    catch (cause) {
+      setStartupError(cause instanceof Error ? cause.message : "Não foi possível alterar o início automático.")
+      try { setStartupState(await window.bdash.getStartupState()) }
+      catch { setStartupState({ state: "unavailable" }) }
+    } finally { setStartupBusy(false) }
+  }
+
   function update(field: keyof Preferences, value: string) {
     setPreferences((current) => current ? { ...current, [field]: field === "logSourcePath" ? value || null : Number(value) } : current)
   }
@@ -154,6 +201,19 @@ export function DiagnosticsView({ profiles, source, onProfilesChanged, onSelectP
     {error ? <p role="alert" className="rounded-lg border border-destructive/40 bg-card p-3 text-sm text-destructive">{error}</p> : null}
     {notice ? <p role="status" className="rounded-lg border bg-card p-3 text-sm">{notice}</p> : null}
     {loading ? <p role="status" className="text-sm text-muted-foreground">Carregando diagnóstico…</p> : null}
+
+    <Card><CardHeader><CardTitle className="text-base font-semibold">Inicialização do aplicativo</CardTitle></CardHeader><CardContent className="flex flex-col gap-3 text-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <label htmlFor="startup-enabled" className="flex items-center gap-3 font-medium">
+          <input id="startup-enabled" type="checkbox" className="size-4 accent-primary" checked={startupState?.state === "enabled"} disabled={startupLoading || startupBusy || !startupState || startupState.state === "unavailable"} aria-describedby="startup-description startup-status" onChange={(event) => void changeStartup(event.target.checked)} />
+          Iniciar com o Windows
+        </label>
+        <Button type="button" variant="outline" size="sm" onClick={() => void refreshStartup()} disabled={startupLoading || startupBusy}>Atualizar estado</Button>
+      </div>
+      <p id="startup-description" className="text-muted-foreground">Após entrar na sua conta do Windows, o DBMonitor inicia minimizado na barra de tarefas. Clique nele na barra para restaurar a janela. Esta opção vale para o aplicativo, independentemente da origem PostgreSQL selecionada.</p>
+      <p id="startup-status" role="status">{startupLoading ? "Consultando início automático…" : startupBusy ? "Alterando início automático…" : startupState?.state === "enabled" ? "Ativado" : startupState?.state === "disabled" ? "Desativado" : "Indisponível"}{startupState?.reason ? ` — ${startupState.reason}` : ""}</p>
+      {startupError ? <p role="alert" className="text-destructive">{startupError}</p> : null}
+    </CardContent></Card>
 
     <Card><CardHeader><CardTitle className="text-base font-semibold">Origens PostgreSQL</CardTitle><p className="text-xs text-muted-foreground">Selecione uma origem no cabeçalho. Cada perfil mantém suas próprias coletas, preferências e histórico.</p></CardHeader><CardContent className="flex flex-col gap-4">
       <div className="flex flex-col gap-2">{profiles.map((profile) => <div key={profile.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3 text-sm">

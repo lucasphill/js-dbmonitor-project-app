@@ -6,6 +6,8 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } f
 import type { DataBlock, TimePoint } from "@/lib/dashboard-types"
 import { formatNumber } from "@/lib/format"
 import { SourceStatus } from "./source-status"
+import { ExplanationLabel, type ExplainAction } from "./explanation-info"
+import type { ExplanationTopicId } from "@/lib/explanations"
 
 const chartConfig = {
   value: { label: "Valor", color: "var(--chart-1)" },
@@ -22,10 +24,14 @@ function SeriesChart({
   title,
   block,
   unit,
+  topicId,
+  onExplain,
 }: {
   title: string
   block: DataBlock<TimePoint[]>
   unit: string
+  topicId: ExplanationTopicId
+  onExplain: ExplainAction
 }) {
   const points = block.data?.reduce<{ at: string; value: number | null }[]>((series, point, index, all) => {
     if (index > 0 && all[index - 1].segment !== point.segment) series.push({ at: point.at, value: null })
@@ -37,7 +43,7 @@ function SeriesChart({
   return (
     <Card className="min-w-0">
       <CardHeader>
-        <CardTitle className="text-base font-semibold">{title}</CardTitle>
+        <CardTitle className="text-base font-semibold"><ExplanationLabel label={title} topicId={topicId} onExplain={onExplain} /></CardTitle>
         <p className="text-xs text-muted-foreground">{unit} · Período selecionado</p>
       </CardHeader>
       <CardContent className="flex min-h-60 flex-col gap-3">
@@ -63,14 +69,16 @@ function SeriesChart({
 export function OverviewCharts({
   connections,
   transactions,
+  onExplain,
 }: {
   connections: DataBlock<TimePoint[]>
   transactions: DataBlock<TimePoint[]>
+  onExplain: ExplainAction
 }) {
   return (
     <section className="grid min-w-0 gap-4 xl:grid-cols-2" aria-label="Séries temporais">
-      <SeriesChart title="Conexões abertas" block={connections} unit="conexões" />
-      <SeriesChart title="Taxa de transações" block={transactions} unit="tx/min" />
+      <SeriesChart title="Conexões abertas" block={connections} unit="conexões" topicId="open-connections-series" onExplain={onExplain} />
+      <SeriesChart title="Taxa de transações" block={transactions} unit="tx/min" topicId="transaction-rate-series" onExplain={onExplain} />
     </section>
   )
 }

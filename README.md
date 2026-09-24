@@ -10,6 +10,8 @@ Cada perfil contém endpoint, porta, banco, usuário PostgreSQL e modo de autent
 
 O objetivo é apoiar diagnóstico operacional. A visibilidade das métricas depende das permissões do usuário no PostgreSQL, da extensão `pg_stat_statements` para latência agregada e de uma fonte CSV acessível para eventos de log. O botão de encerramento de sessão exige confirmação e revalida a sessão antes da ação.
 
+A seção **Explicações**, acessível no menu lateral ou na navegação compacta, define os indicadores de Visão geral, Conexões, Desempenho, Bancos e Logs. O botão circular **i** ao lado de cada conceito abre diretamente sua definição, com unidade, período, cálculo e limitações. O conteúdo é local e continua disponível sem conexão com PostgreSQL; consultá-lo não inicia uma coleta.
+
 ## Arquitetura
 
 - **Electron** mantém a conexão PostgreSQL, a coleta, o SQLite local e as operações administrativas no processo principal.
@@ -35,6 +37,14 @@ O caminho principal dos dados é `PostgreSQL → processo principal Electron →
 As tecnologias principais são Electron 44, Next.js 16, React 19, TypeScript, Tailwind CSS 4, shadcn/ui, Recharts, `pg`, SQLite nativo do Electron e electron-builder. O nome público e o pacote são **DBMonitor**. Os identificadores internos legados `bdash://app/`, `window.bdash` e `bdash.sqlite` permanecem para compatibilidade com o histórico e o contrato já usado pelo aplicativo.
 
 ## Requisitos e conexão
+
+### Iniciar com o Windows
+
+Em uma instalação nova pelo instalador Windows, o DBMonitor fica configurado para iniciar automaticamente após o login do usuário que instalou o aplicativo. Nessa abertura, a janela começa minimizada na barra de tarefas; clique no botão do DBMonitor na barra para restaurá-la. Ao abrir o aplicativo manualmente, a janela aparece normalmente. O programa não inicia antes do login e não usa ícone na área de notificação para esse recurso.
+
+Em **Configurações → Iniciar com o Windows**, é possível consultar o estado efetivo, desativar e reativar essa opção sem alterar as configurações do Windows manualmente. Uma desativação feita no DBMonitor é preservada em atualizações e reinstalações que mantêm os dados do usuário. Se o Windows desabilitar o item de inicialização, o aplicativo mostra essa condição nas Configurações.
+
+A abertura automática segue as mesmas regras de conexão dos perfis. Perfis que usam senha apenas durante a sessão precisam recebê-la novamente após um novo login; esta opção não armazena credenciais.
 
 - Windows ou Linux e Node.js 24 com npm para desenvolver e empacotar. O aplicativo instalado usa o Node incluído no Electron.
 - PostgreSQL acessível, com uma conta capaz de ler as views de estatísticas. Para encerrar sessões de outros usuários, a conta precisa da permissão adequada no PostgreSQL.

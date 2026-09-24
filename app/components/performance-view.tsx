@@ -8,22 +8,26 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import type { DataBlock, TimePoint } from "@/lib/dashboard-types"
 import { formatDuration, formatNumber, formatTimestamp } from "@/lib/format"
 import { useHistory } from "@/app/hooks/use-history"
+import type { ExplanationTopicId } from "@/lib/explanations"
+import { ExplanationLabel, type ExplainAction } from "./explanation-info"
 import { PeriodSelector } from "./period-selector"
 import { SourceStatus } from "./source-status"
 
 const config = { value: { label: "Valor", color: "var(--chart-1)" } } satisfies ChartConfig
 
-export function HistorySeriesCard({ title, block, unit }: {
+export function HistorySeriesCard({ title, block, unit, topicId, onExplain }: {
   title: string
   block: DataBlock<TimePoint[]>
   unit: string
+  topicId: ExplanationTopicId
+  onExplain: ExplainAction
 }) {
   const points = block.data ?? []
   const plot = points.some((point) => point.value !== null) && ["ready", "partial", "stale"].includes(block.state)
   return (
     <Card className="min-w-0">
       <CardHeader>
-        <CardTitle className="text-base">{title}</CardTitle>
+        <CardTitle className="text-base"><ExplanationLabel label={title} topicId={topicId} onExplain={onExplain} /></CardTitle>
         <CardDescription>{unit} · Período selecionado</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
@@ -48,7 +52,7 @@ export function HistorySeriesCard({ title, block, unit }: {
   )
 }
 
-export function PerformanceView() {
+export function PerformanceView({ onExplain }: { onExplain: ExplainAction }) {
   const history = useHistory("performance")
   const data = history.performance
   const aggregates = data?.queryAggregates
@@ -66,16 +70,16 @@ export function PerformanceView() {
       {history.loading && !data ? <p role="status" className="text-sm text-muted-foreground">Carregando desempenho…</p> : null}
       {data ? <>
         <div className="grid min-w-0 gap-4 xl:grid-cols-3">
-          <HistorySeriesCard title="Atividade WAL" block={data.walSeries} unit={data.walSeries.unit || "bytes/coleta"} />
-          <HistorySeriesCard title="Operações de I/O" block={data.ioSeries} unit={data.ioSeries.unit || "operações/coleta"} />
-          <HistorySeriesCard title="Tempo da coleta" block={data.collectionDurationSeries} unit="ms" />
+          <HistorySeriesCard title="Atividade WAL" block={data.walSeries} unit={data.walSeries.unit || "bytes/coleta"} topicId="wal-per-collection" onExplain={onExplain} />
+          <HistorySeriesCard title="Operações de I/O" block={data.ioSeries} unit={data.ioSeries.unit || "operações/coleta"} topicId="io-per-collection" onExplain={onExplain} />
+          <HistorySeriesCard title="Tempo da coleta" block={data.collectionDurationSeries} unit="ms" topicId="collection-duration" onExplain={onExplain} />
         </div>
         <div className="grid min-w-0 gap-4 xl:grid-cols-2">
           <Card className="min-w-0">
-            <CardHeader><CardTitle className="text-base">Queries ativas</CardTitle><CardDescription>Duração em andamento; esperas são uma informação separada.</CardDescription></CardHeader>
+            <CardHeader><CardTitle className="text-base"><ExplanationLabel label="Queries ativas" topicId="active-queries" onExplain={onExplain} /></CardTitle><CardDescription>Duração em andamento; esperas são uma informação separada.</CardDescription></CardHeader>
             <CardContent className="flex flex-col gap-3">
               {active?.data?.rows.length ? <div className="overflow-x-auto"><Table>
-                <TableHeader><TableRow><TableHead>PID</TableHead><TableHead>Banco</TableHead><TableHead>Usuário</TableHead><TableHead>Duração</TableHead><TableHead>Espera</TableHead></TableRow></TableHeader>
+                <TableHeader><TableRow><TableHead><ExplanationLabel label="PID" topicId="session-pid" onExplain={onExplain} /></TableHead><TableHead><ExplanationLabel label="Banco" topicId="session-database" onExplain={onExplain} /></TableHead><TableHead><ExplanationLabel label="Usuário" topicId="session-user" onExplain={onExplain} /></TableHead><TableHead><ExplanationLabel label="Duração" topicId="active-query-duration" onExplain={onExplain} /></TableHead><TableHead><ExplanationLabel label="Espera" topicId="session-wait" onExplain={onExplain} /></TableHead></TableRow></TableHeader>
                 <TableBody>{active.data.rows.map((row) => <TableRow key={`${row.pid}-${row.backendStart}`}>
                   <TableCell>{row.pid}</TableCell><TableCell>{row.database || "—"}</TableCell><TableCell>{row.user || "—"}</TableCell>
                   <TableCell>{formatDuration(row.activeDurationMs)}</TableCell><TableCell>{row.waitEvent || row.waitEventType || "—"}</TableCell>
@@ -85,10 +89,10 @@ export function PerformanceView() {
             </CardContent>
           </Card>
           <Card className="min-w-0">
-            <CardHeader><CardTitle className="text-base">Latência agregada por consulta</CardTitle><CardDescription>Acumulada desde o último reset do pg_stat_statements; independe do período dos gráficos.</CardDescription></CardHeader>
+            <CardHeader><CardTitle className="text-base"><ExplanationLabel label="Latência agregada por consulta" topicId="query-aggregate-latency" onExplain={onExplain} /></CardTitle><CardDescription>Acumulada desde o último reset do pg_stat_statements; independe do período dos gráficos.</CardDescription></CardHeader>
             <CardContent className="flex flex-col gap-3">
               {aggregates?.data?.rows.length ? <div className="overflow-x-auto"><Table>
-                <TableHeader><TableRow><TableHead>Grupo de consulta</TableHead><TableHead>Chamadas</TableHead><TableHead>Média</TableHead><TableHead>Total</TableHead></TableRow></TableHeader>
+                <TableHeader><TableRow><TableHead><ExplanationLabel label="Grupo de consulta" topicId="query-group" onExplain={onExplain} /></TableHead><TableHead><ExplanationLabel label="Chamadas" topicId="query-calls-total" onExplain={onExplain} /></TableHead><TableHead><ExplanationLabel label="Média" topicId="query-mean-time-aggregate" onExplain={onExplain} /></TableHead><TableHead><ExplanationLabel label="Total" topicId="query-total-time-aggregate" onExplain={onExplain} /></TableHead></TableRow></TableHeader>
                 <TableBody>{aggregates.data.rows.map((row) => <TableRow key={`${row.databaseOid}:${row.userOid}:${row.queryId}`}>
                   <TableCell className="font-mono text-xs">{row.queryId}</TableCell><TableCell>{formatNumber(row.calls)}</TableCell>
                   <TableCell>{formatDuration(row.meanTimeMs)}</TableCell><TableCell>{formatDuration(row.totalTimeMs)}</TableCell>

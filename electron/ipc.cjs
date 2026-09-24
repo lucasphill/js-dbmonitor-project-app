@@ -59,6 +59,11 @@ function confirmation(value) {
   return true;
 }
 
+function startupEnabled(value) {
+  if (typeof value !== "boolean") throw new IpcInputError("Início automático inválido");
+  return value;
+}
+
 function sessionActionIdentity(value) {
   const identity = sessionIdentity(value);
   return { ...identity, profileId: profileId(value.profileId),
@@ -183,6 +188,7 @@ function safeError(error) {
     DATABASE_AUTH_FAILED: "Autenticação PostgreSQL recusada. Confira usuário e configuração IAM do banco.",
     DATABASE_PERMISSION_DENIED: "O usuário PostgreSQL não possui permissão para esta consulta.",
     CONNECTION_TIMEOUT: "A conexão excedeu o tempo limite. Confira rede, VPN e endpoint.",
+    STARTUP_SETTINGS_FAILED: "Não foi possível alterar o início automático. Tente novamente.",
   };
   if (Object.hasOwn(known, code)) return { code, message: known[code] };
   if (code === "42501") return { code: "PERMISSION_DENIED", message: "Permissão insuficiente no PostgreSQL" };
@@ -204,4 +210,4 @@ function wrapHandler(dev, handler) {
 }
 
 module.exports = { IpcInputError, assertOrigin, period, page, profileId, sourceContext, confirmation,
-  sessionIdentity, sessionActionIdentity, sessionFilters, databaseInventoryFilters, logFilters, preferences, exportRequest, safeError, wrapHandler };
+  startupEnabled, sessionIdentity, sessionActionIdentity, sessionFilters, databaseInventoryFilters, logFilters, preferences, exportRequest, safeError, wrapHandler };

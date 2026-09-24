@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Overview, Period, SourceContext } from "@/lib/dashboard-types";
 
-export function useDashboard(period?: Period, source?: SourceContext | null) {
+export function useDashboard(period?: Period, source?: SourceContext | null, enabled = true) {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -13,6 +13,7 @@ export function useDashboard(period?: Period, source?: SourceContext | null) {
   const windowMs = period ? Date.parse(period.to) - Date.parse(period.from) : 60 * 60 * 1000;
 
   const load = useCallback(async (initial = false) => {
+    if (!enabled) { setLoading(false); return }
     if (!window.bdash) {
       setError("Abra o dashboard pelo Electron para consultar o PostgreSQL.");
       setLoading(false);
@@ -35,7 +36,7 @@ export function useDashboard(period?: Period, source?: SourceContext | null) {
     } finally {
       if (currentRequest === requestId.current) setLoading(false);
     }
-  }, [windowMs, source?.profileId, source?.generation]);
+  }, [windowMs, source?.profileId, source?.generation, enabled]);
 
   const refresh = useCallback(async () => {
     if (!window.bdash) return;
@@ -48,10 +49,11 @@ export function useDashboard(period?: Period, source?: SourceContext | null) {
   }, [load]);
 
   useEffect(() => {
+    if (!enabled) { requestId.current += 1; return }
     void load(true);
     const interval = setInterval(() => { void load(); }, 15_000);
     return () => { clearInterval(interval); requestId.current += 1; };
-  }, [load]);
+  }, [load, enabled]);
 
   const visible = !source || (overview?.sourceContext?.profileId === source.profileId && overview.sourceContext.generation === source.generation) ? overview : null;
   return { overview: visible, loading, error, refresh };

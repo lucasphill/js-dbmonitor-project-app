@@ -10,6 +10,8 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import type { SessionFilters, SessionRow, SessionsResult } from "@/lib/dashboard-types"
 import { formatDuration, formatNumber, formatTimestamp } from "@/lib/format"
+import type { ExplanationTopicId } from "@/lib/explanations"
+import { ExplanationInfo, ExplanationLabel, type ExplainAction } from "./explanation-info"
 
 const states = [
   { value: "all", label: "Todos os estados" },
@@ -33,6 +35,7 @@ export function SessionsTable({
   canPrevious,
   selected,
   onSelect,
+  onExplain,
 }: {
   result: SessionsResult | null
   filters: SessionFilters
@@ -43,6 +46,7 @@ export function SessionsTable({
   canPrevious: boolean
   selected: SessionRow | null
   onSelect: (row: SessionRow) => void
+  onExplain: ExplainAction
 }) {
   const [search, setSearch] = useState(filters.search ?? "")
   const [database, setDatabase] = useState(filters.database ?? "")
@@ -51,10 +55,10 @@ export function SessionsTable({
   const [state, setState] = useState(filters.state ?? "all")
   const rows = result?.sessions.data?.rows ?? []
 
-  const sortHeader = (label: string, field: NonNullable<SessionFilters["sortBy"]>) => <Button type="button" variant="ghost" size="sm" onClick={() => onSort(field)} aria-label={`Ordenar por ${label}`} className="-ml-2"><ArrowDownUp data-icon="inline-start" aria-hidden />{label}</Button>
+  const sortHeader = (label: string, field: NonNullable<SessionFilters["sortBy"]>, topicId: ExplanationTopicId) => <span className="inline-flex items-center gap-1 whitespace-nowrap"><Button type="button" variant="ghost" size="sm" onClick={() => onSort(field)} aria-label={`Ordenar por ${label}`} className="-ml-2"><ArrowDownUp data-icon="inline-start" aria-hidden />{label}</Button><ExplanationInfo label={label} topicId={topicId} onExplain={onExplain} /></span>
 
   return <Card className="min-w-0">
-    <CardHeader><CardTitle className="text-base font-semibold">Sessões abertas</CardTitle><p className="text-xs text-muted-foreground">Consulta e endereço do cliente ficam ocultos até revelação explícita.</p></CardHeader>
+    <CardHeader><CardTitle className="text-base font-semibold"><ExplanationLabel label="Sessões abertas" topicId="session-total" onExplain={onExplain} /></CardTitle><p className="text-xs text-muted-foreground">Consulta e endereço do cliente ficam ocultos até revelação explícita.</p></CardHeader>
     <CardContent className="flex flex-col gap-4">
       <form onSubmit={(event) => { event.preventDefault(); onFilter({ search: search.trim(), database: database.trim(), user: user.trim(), application: application.trim(), state: state === "all" ? undefined : state }) }} className="flex flex-wrap items-end gap-2" aria-label="Filtros de conexões">
         <label className="flex min-w-48 flex-1 flex-col gap-1 text-xs font-medium text-muted-foreground">Busca<Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="PID, usuário, banco ou aplicação" /></label>
@@ -67,15 +71,15 @@ export function SessionsTable({
       <div className="overflow-x-auto rounded-md border">
         <Table>
           <TableHeader><TableRow>
-            <TableHead>{sortHeader("PID", "pid")}</TableHead>
-            <TableHead>{sortHeader("Banco", "database")}</TableHead>
-            <TableHead>{sortHeader("Usuário", "user")}</TableHead>
-            <TableHead>Aplicação</TableHead>
-            <TableHead>{sortHeader("Estado", "state")}</TableHead>
-            <TableHead>{sortHeader("Conectada em", "startedAt")}</TableHead>
-            <TableHead>Consulta ativa</TableHead>
-            <TableHead className="text-right">{sortHeader("Duração", "duration")}</TableHead>
-            <TableHead>Espera</TableHead>
+            <TableHead>{sortHeader("PID", "pid", "session-pid")}</TableHead>
+            <TableHead>{sortHeader("Banco", "database", "session-database")}</TableHead>
+            <TableHead>{sortHeader("Usuário", "user", "session-user")}</TableHead>
+            <TableHead><ExplanationLabel label="Aplicação" topicId="session-application" onExplain={onExplain} /></TableHead>
+            <TableHead>{sortHeader("Estado", "state", "session-state")}</TableHead>
+            <TableHead>{sortHeader("Conectada em", "startedAt", "session-start")}</TableHead>
+            <TableHead><ExplanationLabel label="Consulta ativa" topicId="session-query" onExplain={onExplain} /></TableHead>
+            <TableHead className="text-right">{sortHeader("Duração", "duration", "active-query-duration")}</TableHead>
+            <TableHead><ExplanationLabel label="Espera" topicId="session-wait" onExplain={onExplain} /></TableHead>
             <TableHead>Ação</TableHead>
           </TableRow></TableHeader>
           <TableBody>

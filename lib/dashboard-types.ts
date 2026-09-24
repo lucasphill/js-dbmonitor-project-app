@@ -282,6 +282,11 @@ export interface Preferences {
   logSourcePath: string | null;
 }
 
+export interface StartupState {
+  state: "enabled" | "disabled" | "unavailable";
+  reason?: string;
+}
+
 export interface Diagnostics {
   sourceContext?: SourceContext;
   capabilities: CapabilityMap;
@@ -322,6 +327,8 @@ export interface ExportResult {
 
 /** Public renderer contract. The main process validates every input at runtime. */
 export interface DashboardApi {
+  getStartupState(): Promise<StartupState>;
+  setStartupEnabled(enabled: boolean): Promise<StartupState>;
   listConnectionProfiles(includeArchived?: boolean): Promise<{ profiles: ConnectionProfile[]; activeProfileId: ProfileId; generation: number }>;
   testConnectionProfile(draftOrId: ProfileDraft | ProfileId, transientPassword?: string): Promise<ConnectionTest>;
   createConnectionProfile(draft: ProfileDraft): Promise<ConnectionProfile>;

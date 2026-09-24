@@ -11,6 +11,8 @@ async function invoke(channel, ...args) {
 }
 
 contextBridge.exposeInMainWorld("bdash", {
+  getStartupState: () => invoke("startup:get-state"),
+  setStartupEnabled: (enabled) => invoke("startup:set-enabled", enabled),
   listConnectionProfiles: (includeArchived = false) => invoke("profiles:list", includeArchived),
   createConnectionProfile: (draft) => invoke("profiles:create", draft),
   testConnectionProfile: (draftOrId, transientPassword) => invoke("profiles:test", draftOrId, transientPassword),

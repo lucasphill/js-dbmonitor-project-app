@@ -12,12 +12,28 @@ const { buildDatabaseActivity, analyzeDatabases } = require("./analytics.cjs");
 const { buildPerformance } = require("./performance.cjs");
 const { ingestCsvLog } = require("./logs.cjs");
 const { COLUMNS, writeCsv } = require("./export.cjs");
+const { createStartupService, createWindowActivationCoordinator } = require("./startup.cjs");
 const { IpcInputError, wrapHandler, period, page, profileId, sourceContext, confirmation, sessionFilters,
-  sessionActionIdentity, databaseInventoryFilters, logFilters, preferences, exportRequest } = require("./ipc.cjs");
+  sessionActionIdentity, databaseInventoryFilters, logFilters, preferences, exportRequest, startupEnabled } = require("./ipc.cjs");
 
 const isDev = !app.isPackaged && process.argv.includes("--dev");
+const isPrimaryInstance = app.requestSingleInstanceLock();
+if (!isPrimaryInstance) app.quit();
 let storage;
 let controller;
+let mainWindow;
+let startupService;
+const activation = createWindowActivationCoordinator({
+  platform: process.platform, isPackaged: app.isPackaged, argv: process.argv,
+});
+
+if (isPrimaryInstance) {
+  app.on("second-instance", (_event, argv) => {
+    if (activation.onSecondInstance({ platform: process.platform, isPackaged: app.isPackaged, argv }) === "show") {
+      activation.applyPending(mainWindow);
+    }
+  });
+}
 
 Menu.setApplicationMenu(null);
 
@@ -48,8 +64,9 @@ function registerStaticProtocol() {
   });
 }
 
-function createWindow() {
+function createWindow({ minimized = false } = {}) {
   const window = new BrowserWindow({
+    show: !minimized,
     width: 1280,
     height: 800,
     minWidth: 880,
@@ -63,6 +80,18 @@ function createWindow() {
       sandbox: true,
     },
   });
+  mainWindow = window;
+  window.on("closed", () => { if (mainWindow === window) mainWindow = undefined; });
+  activation.applyPending(window);
+
+  if (minimized) {
+    window.once("ready-to-show", () => {
+      if (window.isDestroyed()) return;
+      window.show();
+      if (activation.presentation() === "normal") window.focus();
+      else window.minimize();
+    });
+  }
 
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event, url) => {
@@ -75,6 +104,8 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  if (!isPrimaryInstance) return;
+  startupService = createStartupService({ app });
   const userDataPath = resolveUserDataPath({
     appDataPath: app.getPath("appData"),
     defaultPath: app.getPath("userData"),
@@ -101,6 +132,9 @@ app.whenReady().then(async () => {
   };
   const withContext = (context, payload) => ({ ...payload, sourceContext: context.sourceContext });
   const register = (channel, handler) => ipcMain.handle(channel, wrapHandler(isDev, handler));
+
+  register("startup:get-state", () => startupService.getState());
+  register("startup:set-enabled", (enabled) => startupService.setEnabled(startupEnabled(enabled)));
 
   register("profiles:list", (includeArchived = false) => controller.list(includeArchived === true));
   register("profiles:create", (draft) => controller.create(draft));
@@ -263,7 +297,7 @@ app.whenReady().then(async () => {
     return result;
     });
   });
-  createWindow();
+  createWindow({ minimized: activation.presentation() === "minimized" });
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });

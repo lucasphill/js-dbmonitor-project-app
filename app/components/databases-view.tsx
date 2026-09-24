@@ -14,6 +14,8 @@ import { useHistory } from "@/app/hooks/use-history"
 import { HistorySeriesCard } from "./performance-view"
 import { PeriodSelector } from "./period-selector"
 import { SourceStatus } from "./source-status"
+import { ExplanationInfo, ExplanationLabel, type ExplainAction } from "./explanation-info"
+import type { ExplanationTopicId } from "@/lib/explanations"
 
 const databaseStates = [
   { value: "all", label: "Todos os estados" },
@@ -22,7 +24,12 @@ const databaseStates = [
   { value: "template", label: "Modelo" },
 ]
 
-export function DatabasesView() {
+const inventoryTopics: Record<NonNullable<DatabaseInventoryFilters["sortBy"]>, ExplanationTopicId> = {
+  name: "database-identity", size: "database-size", owner: "database-owner", encoding: "database-encoding",
+  collation: "database-collation", connections: "database-connections", connectionLimit: "database-connection-limit", status: "database-status",
+}
+
+export function DatabasesView({ onExplain }: { onExplain: ExplainAction }) {
   const [exporting, setExporting] = useState(false)
   const [exportMessage, setExportMessage] = useState<string | null>(null)
   const [inventory, setInventory] = useState<DatabaseInventory | null>(null)
@@ -79,7 +86,7 @@ export function DatabasesView() {
 
   const inventorySortHeader = (label: string, field: NonNullable<DatabaseInventoryFilters["sortBy"]>, numeric = false) =>
     <TableHead className={numeric ? "text-right" : undefined} aria-sort={inventoryFilters.sortBy === field ? inventoryFilters.sortDirection === "desc" ? "descending" : "ascending" : "none"}>
-      <Button type="button" variant="ghost" size="sm" onClick={() => sortInventory(field)} aria-label={`Ordenar por ${label}`} className={numeric ? undefined : "-ml-2"}><ArrowDownUp data-icon="inline-start" aria-hidden />{label}</Button>
+      <span className="inline-flex items-center gap-1 whitespace-nowrap"><Button type="button" variant="ghost" size="sm" onClick={() => sortInventory(field)} aria-label={`Ordenar por ${label}`} className={numeric ? undefined : "-ml-2"}><ArrowDownUp data-icon="inline-start" aria-hidden />{label}</Button><ExplanationInfo label={label} topicId={inventoryTopics[field]} onExplain={onExplain} /></span>
     </TableHead>
 
   async function exportCurrentPeriod() {
@@ -105,7 +112,7 @@ export function DatabasesView() {
       {history.databaseError ? <p className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive" role="alert">{history.databaseError}</p> : null}
       {exportMessage ? <p className="rounded-lg border bg-card p-3 text-sm" role="status">{exportMessage}</p> : null}
       <Card className="min-w-0">
-        <CardHeader><CardTitle className="text-base">Bancos da instância</CardTitle><CardDescription>Filtros e ordenação abrangem todos os bancos da instância. O tamanho é medido ao abrir a lista; ordenar por tamanho consulta os bancos filtrados. Sem permissão CONNECT ou em caso de tempo limite, aparece indisponível.</CardDescription></CardHeader>
+        <CardHeader><CardTitle className="text-base"><ExplanationLabel label="Bancos da instância" topicId="database-inventory" onExplain={onExplain} /></CardTitle><CardDescription>Filtros e ordenação abrangem todos os bancos da instância. O tamanho é medido ao abrir a lista; ordenar por tamanho consulta os bancos filtrados. Sem permissão CONNECT ou em caso de tempo limite, aparece indisponível.</CardDescription></CardHeader>
         <CardContent className="flex flex-col gap-4">
           <form className="flex flex-wrap items-end gap-2" aria-label="Filtros de bancos" onSubmit={(event) => {
             event.preventDefault()
@@ -153,20 +160,20 @@ export function DatabasesView() {
       {history.loading && !data ? <p role="status" className="text-sm text-muted-foreground">Carregando bancos…</p> : null}
       {data ? <>
         <div className="grid min-w-0 gap-4 xl:grid-cols-2">
-          <HistorySeriesCard title="Conexões por coleta" block={data.connectionsSeries} unit="conexões" />
-          <HistorySeriesCard title="Transações concluídas" block={data.transactionsSeries} unit="transações/coleta" />
-          <HistorySeriesCard title="Blocos lidos" block={data.readsSeries} unit="blocos/coleta" />
-          <HistorySeriesCard title="Acertos de cache" block={data.cacheSeries} unit="blocos/coleta" />
+          <HistorySeriesCard title="Conexões por coleta" block={data.connectionsSeries} unit="conexões" topicId="database-connections-series" onExplain={onExplain} />
+          <HistorySeriesCard title="Transações concluídas" block={data.transactionsSeries} unit="transações/coleta" topicId="transactions-per-collection" onExplain={onExplain} />
+          <HistorySeriesCard title="Blocos lidos" block={data.readsSeries} unit="blocos/coleta" topicId="blocks-read-per-collection" onExplain={onExplain} />
+          <HistorySeriesCard title="Acertos de cache" block={data.cacheSeries} unit="blocos/coleta" topicId="cache-hits-per-collection" onExplain={onExplain} />
         </div>
         <Card className="min-w-0">
-          <CardHeader><CardTitle className="text-base">Bancos mais acessados</CardTitle><CardDescription>Ordenado pela variação de commits + rollbacks. Contadores totais são valores desde o último reset do PostgreSQL.</CardDescription></CardHeader>
+          <CardHeader><CardTitle className="text-base"><ExplanationLabel label="Bancos mais acessados" topicId="database-ranking" onExplain={onExplain} /></CardTitle><CardDescription>Ordenado pela variação de commits + rollbacks. Contadores totais são valores desde o último reset do PostgreSQL.</CardDescription></CardHeader>
           <CardContent className="flex flex-col gap-4">
             {rows.length ? <div className="overflow-x-auto"><Table>
               <TableHeader><TableRow>
-                <TableHead>Banco</TableHead><TableHead className="text-right">Transações no período</TableHead>
-                <TableHead className="text-right">Conexões atuais</TableHead><TableHead className="text-right">Commits totais</TableHead>
-                <TableHead className="text-right">Rollbacks totais</TableHead><TableHead className="text-right">Blocos lidos no período</TableHead>
-                <TableHead className="text-right">Cache no período</TableHead>
+                <TableHead><ExplanationLabel label="Banco" topicId="database-identity" onExplain={onExplain} /></TableHead><TableHead className="text-right"><ExplanationLabel label="Transações no período" topicId="transactions-in-period" onExplain={onExplain} /></TableHead>
+                <TableHead className="text-right"><ExplanationLabel label="Conexões atuais" topicId="database-connections" onExplain={onExplain} /></TableHead><TableHead className="text-right"><ExplanationLabel label="Commits totais" topicId="commits-total" onExplain={onExplain} /></TableHead>
+                <TableHead className="text-right"><ExplanationLabel label="Rollbacks totais" topicId="rollbacks-total" onExplain={onExplain} /></TableHead><TableHead className="text-right"><ExplanationLabel label="Blocos lidos no período" topicId="blocks-read-in-period" onExplain={onExplain} /></TableHead>
+                <TableHead className="text-right"><ExplanationLabel label="Cache no período" topicId="cache-hits-in-period" onExplain={onExplain} /></TableHead>
               </TableRow></TableHeader>
               <TableBody>{rows.map((row) => <TableRow key={row.oid}>
                 <TableCell className="font-medium">{row.name}</TableCell>

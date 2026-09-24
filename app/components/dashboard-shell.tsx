@@ -1,7 +1,7 @@
 "use client"
 
 import type { ReactNode } from "react"
-import { Activity, Database, FileText, Gauge, LayoutDashboard, RefreshCw, Settings2, Users } from "lucide-react"
+import { Activity, BookOpenText, Database, FileText, Gauge, LayoutDashboard, RefreshCw, Settings2, Users } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -10,7 +10,7 @@ import { ConnectionProfileSelector } from "./connection-profile-selector"
 import { formatAge, formatTimestamp } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
-export type SectionId = "overview" | "connections" | "performance" | "databases" | "logs" | "settings"
+export type SectionId = "overview" | "connections" | "performance" | "databases" | "logs" | "explanations" | "settings"
 
 const sections = [
   { id: "overview", label: "Visão geral", icon: LayoutDashboard },
@@ -18,6 +18,7 @@ const sections = [
   { id: "performance", label: "Desempenho", icon: Activity },
   { id: "databases", label: "Bancos", icon: Database },
   { id: "logs", label: "Logs", icon: FileText },
+  { id: "explanations", label: "Explicações", icon: BookOpenText },
   { id: "settings", label: "Configurações", icon: Settings2 },
 ] as const
 
@@ -62,7 +63,7 @@ export function DashboardShell({
           </nav>
         </aside>
         <div className="min-w-0">
-          <div className="sticky top-0 z-30 bg-card">
+          <div id="dashboard-sticky-header" className="sticky top-0 z-30 bg-card">
           <header className="flex min-h-[72px] flex-wrap items-center justify-between gap-3 border-b px-4 py-3 sm:px-6">
             <div className="flex min-w-0 flex-wrap items-center gap-3 text-sm">
               <Gauge className="size-5 shrink-0 text-primary" aria-hidden />
@@ -70,9 +71,9 @@ export function DashboardShell({
               <Badge variant={connected ? "default" : "secondary"}>{connected ? "Saudável" : instance?.state === "loading" ? "Consultando" : "Indisponível"}</Badge>
               <span className="text-xs text-muted-foreground" title={instance?.updatedAt ? formatTimestamp(instance.updatedAt) : undefined}>Última coleta: {formatAge(instance?.updatedAt)}</span>
             </div>
-            <Button type="button" size="sm" onClick={onRefresh} disabled={refreshing}>
+            {section !== "explanations" ? <Button type="button" size="sm" onClick={onRefresh} disabled={refreshing}>
               <RefreshCw data-icon="inline-start" aria-hidden />Atualizar agora
-            </Button>
+            </Button> : null}
           </header>
           <nav className="flex gap-1 overflow-x-auto border-b bg-card px-3 py-2 md:hidden" aria-label="Seções principais">
             {sections.map(({ id, label }) => <button key={id} type="button" onClick={() => onSectionChange(id)} aria-current={section === id ? "page" : undefined} className={cn("shrink-0 rounded-md px-3 py-2 text-xs font-medium text-muted-foreground", section === id && "bg-accent text-accent-foreground")}>{label}</button>)}

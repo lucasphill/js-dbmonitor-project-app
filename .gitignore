@@ -2,6 +2,7 @@ node_modules/
 .next/
 out/
 release/
+dist/
 .env*
 *.sqlite*
 *.db
@@ -22,3 +23,9 @@ design/
 .npm-cache/
 .electron-cache/
 *.tsbuildinfo
+.DS_Store
+Thumbs.db
+*.tmp
+*.swp
+.vscode/
+.idea/

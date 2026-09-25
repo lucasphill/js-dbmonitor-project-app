@@ -33,9 +33,10 @@ function DistributionChart({ title, subtitle, rows, topicId, onExplain }: { titl
 }
 
 export function SessionsChart({ result, onExplain }: { result: SessionsResult; onExplain: ExplainAction }) {
-  const byState = Object.entries(result.byState).filter(([, count]) => count > 0).map(([label, count]) => ({ label: stateLabels[label] || label, count }))
+  const byState = Object.entries(result.byState).filter(([label, count]) => label !== "finished" && count > 0).map(([label, count]) => ({ label: stateLabels[label] || label, count }))
   const users = new Map<string, number>()
   for (const row of result.sessions.data?.rows ?? []) {
+    if (row.state === "finished") continue
     const name = row.user || "Não informado"
     users.set(name, (users.get(name) ?? 0) + 1)
   }

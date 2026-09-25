@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { Client } = require("pg");
-const { listSessions, revealSessionDetails, terminateSession, closeDatabase } = require("../electron/db.cjs");
+const { listSessions, collectClientSessions, revealSessionDetails, terminateSession, closeDatabase } = require("../electron/db.cjs");
 
 test("a disposable client session can be revealed and terminated by exact identity", { skip: !process.env.BDASH_TEST_PG }, async () => {
   const client = new Client({ host: process.env.PGHOST || "localhost", port: Number(process.env.PGPORT || 5432),
@@ -13,6 +13,10 @@ test("a disposable client session can be revealed and terminated by exact identi
     const { rows } = await client.query("SELECT pg_backend_pid() AS pid");
     const pid = rows[0].pid;
     const listed = await listSessions({ application: "bdash-disposable-test", page: { limit: 10, cursor: "0" } });
+    const complete = await collectClientSessions();
+    assert.ok(complete.rows.some((row) => row.pid === pid));
+    assert.ok(complete.rows.length >= listed.rows.length);
+    assert.ok(complete.rows.every((row) => row.finishedAt === null));
     const session = listed.rows.find((row) => row.pid === pid);
     assert.ok(session);
     assert.equal(session.backendStart.match(/\.\d{6}Z$/) !== null, true);

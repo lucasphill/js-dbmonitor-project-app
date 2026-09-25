@@ -12,6 +12,7 @@ const { buildDatabaseActivity, analyzeDatabases } = require("./analytics.cjs");
 const { buildPerformance } = require("./performance.cjs");
 const { ingestCsvLog } = require("./logs.cjs");
 const { COLUMNS, writeCsv } = require("./export.cjs");
+const { createSessionHistory } = require("./sessions-history.cjs");
 const { createStartupService, createWindowActivationCoordinator } = require("./startup.cjs");
 const { IpcInputError, wrapHandler, period, page, profileId, sourceContext, confirmation, sessionFilters,
   sessionActionIdentity, databaseInventoryFilters, logFilters, preferences, exportRequest, startupEnabled } = require("./ipc.cjs");
@@ -132,6 +133,20 @@ app.whenReady().then(async () => {
   };
   const withContext = (context, payload) => ({ ...payload, sourceContext: context.sourceContext });
   const register = (channel, handler) => ipcMain.handle(channel, wrapHandler(isDev, handler));
+  const sessionHistory = createSessionHistory();
+  let sessionQueue = Promise.resolve();
+  function refreshSessions(context) {
+    const collect = async () => {
+      controller.assertContext(context.sourceContext);
+      const snapshot = await db.collectClientSessions();
+      controller.assertContext(context.sourceContext);
+      sessionHistory.reconcile({ ...context.sourceContext,
+        observedAt: snapshot.updatedAt, rows: snapshot.rows });
+    };
+    const result = sessionQueue.then(collect);
+    sessionQueue = result.catch(() => {});
+    return result;
+  }
 
   register("startup:get-state", () => startupService.getState());
   register("startup:set-enabled", (enabled) => startupService.setEnabled(startupEnabled(enabled)));
@@ -155,7 +170,9 @@ app.whenReady().then(async () => {
   });
   register("dashboard:sessions", async (input) => {
     const context = active();
-    const data = await db.listSessions(sessionFilters(input));
+    const filters = sessionFilters(input);
+    await refreshSessions(context);
+    const data = sessionHistory.project(context.profile.id, filters);
     return { sessions: { state: "ready", source: "pg_stat_activity", updatedAt: data.updatedAt,
       data: { rows: data.rows.map((row) => ({ ...row, ...context.sourceContext })),
         total: data.total, nextCursor: data.nextCursor } }, byState: data.byState,
@@ -163,7 +180,12 @@ app.whenReady().then(async () => {
   });
   register("dashboard:session-details", (input) => {
     const identity = sessionActionIdentity(input);
-    return controller.guardAdmin(identity, () => db.revealSessionDetails(identity));
+    return controller.guardAdmin(identity, () => {
+      if (sessionHistory.isFinished(identity.profileId, identity)) {
+        throw new IpcInputError("A conexão já foi finalizada");
+      }
+      return db.revealSessionDetails(identity);
+    });
   });
   register("dashboard:database-activity", (input, paging) => {
     const context = active();
@@ -267,12 +289,8 @@ app.whenReady().then(async () => {
       }).ranking.slice(0, 10000);
     } else if (request.dataset === "sessions") {
       const filters = request.sessionFilters || sessionFilters({});
-      rows = [];
-      for (let offset = 0; offset < 10000; offset += 200) {
-        const result = await db.listSessions({ ...filters, page: { limit: 200, cursor: String(offset) } });
-        rows.push(...result.rows);
-        if (!result.nextCursor) break;
-      }
+      await refreshSessions(context);
+      rows = sessionHistory.project(context.profile.id, filters, { all: true }).rows;
     } else {
       const filters = request.logFilters || logFilters({ period: request.period || period(undefined, { optional: true }) });
       rows = [];
@@ -285,12 +303,16 @@ app.whenReady().then(async () => {
     const result = await dialog.showSaveDialog({ defaultPath: `dbmonitor-${request.dataset}.csv`,
       filters: [{ name: "CSV", extensions: ["csv"] }] });
     if (result.canceled || !result.filePath) return withContext(context, { canceled: true, rowCount: 0 });
+    controller.assertContext(context.sourceContext);
     return withContext(context, await writeCsv(result.filePath, rows, COLUMNS[request.dataset]));
     });
   });
   register("dashboard:terminate-session", async (input) => {
     const identity = sessionActionIdentity(input);
     return controller.guardAdmin(identity, async () => {
+    if (sessionHistory.isFinished(identity.profileId, identity)) {
+      throw new IpcInputError("A conexão já foi finalizada");
+    }
     const result = await db.terminateSession(identity);
     storage.recordTerminationAttempt(identity.profileId, { pid: identity.pid, backendStart: identity.backendStart,
       attemptedAt: result.auditedAt, confirmed: result.status === "success", result: result.status });

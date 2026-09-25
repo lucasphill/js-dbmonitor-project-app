@@ -141,7 +141,7 @@ export interface Overview {
   databases: DataBlock<DatabaseSummary[]>;
 }
 
-export type SessionState = "active" | "idle" | "idle in transaction" | "idle in transaction (aborted)" | "fastpath function call" | "disabled" | null;
+export type SessionState = "active" | "idle" | "idle in transaction" | "idle in transaction (aborted)" | "fastpath function call" | "disabled" | "finished" | null;
 
 export interface SessionRow extends SessionIdentity {
   databaseOid: number | null;
@@ -149,6 +149,8 @@ export interface SessionRow extends SessionIdentity {
   user: string | null;
   application: string;
   state: SessionState;
+  /** First valid collection in which this session was absent; null while open. */
+  finishedAt: ISODate | null;
   waitEventType: string | null;
   waitEvent: string | null;
   backendType: string;
@@ -164,7 +166,7 @@ export interface SessionFilters {
   application?: string;
   state?: string;
   search?: string;
-  sortBy?: "duration" | "startedAt" | "database" | "user" | "state" | "pid";
+  sortBy?: "duration" | "startedAt" | "finishedAt" | "database" | "user" | "state" | "pid";
   sortDirection?: "asc" | "desc";
   page: Page;
 }

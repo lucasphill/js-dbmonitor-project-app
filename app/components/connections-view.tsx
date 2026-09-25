@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
-import type { OperationResult, SessionDetails, SessionFilters, SessionRow } from "@/lib/dashboard-types"
+import type { OperationResult, SessionDetails, SessionFilters, SessionRow, SourceContext } from "@/lib/dashboard-types"
 import { formatDuration, formatNumber, formatTimestamp } from "@/lib/format"
 import { useSessions } from "../hooks/use-sessions"
 import { SessionsChart } from "./sessions-chart"
@@ -17,7 +17,7 @@ import { ExplanationLabel, type ExplainAction } from "./explanation-info"
 
 const initialFilters: SessionFilters = { sortBy: "duration", sortDirection: "desc", page: { limit: 25 } }
 
-export function ConnectionsView({ onExplain }: { onExplain: ExplainAction }) {
+export function ConnectionsView({ onExplain, source }: { onExplain: ExplainAction; source?: SourceContext | null }) {
   const [filters, setFilters] = useState<SessionFilters>(initialFilters)
   const [previousCursors, setPreviousCursors] = useState<(string | undefined)[]>([])
   const [selected, setSelected] = useState<SessionRow | null>(null)
@@ -29,11 +29,11 @@ export function ConnectionsView({ onExplain }: { onExplain: ExplainAction }) {
   const [operation, setOperation] = useState<OperationResult | null>(null)
   const [exporting, setExporting] = useState(false)
   const [exportMessage, setExportMessage] = useState<string | null>(null)
-  const { result, loading, error, refresh, reveal, terminate } = useSessions(filters)
+  const { result, loading, error, refresh, reveal, terminate } = useSessions(filters, source)
   const rows = result?.sessions.data?.rows ?? []
   const active = result?.byState.active ?? 0
   const idle = result?.byState.idle ?? 0
-  const waitingOnPage = rows.filter((row) => row.waitEvent != null).length
+  const waitingOnPage = rows.filter((row) => row.state !== "finished" && row.waitEvent != null).length
 
   function changeFilters(next: Partial<SessionFilters>) {
     setPreviousCursors([])
@@ -68,7 +68,7 @@ export function ConnectionsView({ onExplain }: { onExplain: ExplainAction }) {
   }
 
   async function revealDetails() {
-    if (!selected) return
+    if (!selected || selected.state === "finished") return
     setDetailLoading(true)
     setDetailError(null)
     try {
@@ -83,6 +83,7 @@ export function ConnectionsView({ onExplain }: { onExplain: ExplainAction }) {
   }
 
   async function confirmTermination(row: SessionRow): Promise<OperationResult> {
+    if (row.state === "finished") return { status: "not_found", message: "Esta conexão já foi finalizada.", auditedAt: new Date().toISOString() }
     const next = await terminate({ pid: row.pid, backendStart: row.backendStart, profileId: row.profileId, generation: row.generation })
     setOperation(next)
     if (next.status === "success") { setSheetOpen(false); setSelected(null); setDetails(null) }
@@ -102,7 +103,7 @@ export function ConnectionsView({ onExplain }: { onExplain: ExplainAction }) {
 
   return <>
     <div className="flex flex-wrap items-start justify-between gap-3">
-      <div><h1 className="text-3xl font-bold tracking-tight">Conexões</h1><p className="mt-1 text-sm text-muted-foreground">Sessões atuais, esperas e consultas em execução no PostgreSQL.</p></div>
+      <div><h1 className="text-3xl font-bold tracking-tight">Conexões</h1><p className="mt-1 text-sm text-muted-foreground">Sessões atuais e conexões finalizadas observadas nesta execução.</p></div>
       <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" size="sm" onClick={() => void refresh(true)} disabled={loading}><RefreshCw data-icon="inline-start" aria-hidden />Atualizar sessões</Button><Button type="button" variant="outline" size="sm" onClick={() => void exportCurrentFilters()} disabled={exporting}><Download data-icon="inline-start" aria-hidden />Exportar CSV</Button></div>
     </div>
     {error ? <p role="alert" className="rounded-lg border border-destructive/40 bg-card p-3 text-sm text-destructive">{error}</p> : null}
@@ -110,7 +111,7 @@ export function ConnectionsView({ onExplain }: { onExplain: ExplainAction }) {
     {exportMessage ? <p role="status" className="rounded-lg border bg-card p-3 text-sm">{exportMessage}</p> : null}
     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Resumo de conexões">
       {([
-        { label: "Total", value: result?.sessions.data?.total, icon: Users, topicId: "session-total" },
+        { label: "Na lista", value: result?.sessions.data?.total, icon: Users, topicId: "session-total" },
         { label: "Ativas", value: result ? active : null, icon: Users, topicId: "session-active" },
         { label: "Ociosas", value: result ? idle : null, icon: Clock3, topicId: "session-idle" },
         { label: "Em espera nesta página", value: result ? waitingOnPage : null, icon: Clock3, topicId: "session-waiting-page" },
@@ -122,29 +123,29 @@ export function ConnectionsView({ onExplain }: { onExplain: ExplainAction }) {
 
     <Sheet open={sheetOpen} onOpenChange={(open) => { setSheetOpen(open); if (!open) { setSelected(null); setDetails(null); setDetailError(null) } }}>
       <SheetContent side="right" className="overflow-y-auto sm:max-w-md">
-        <SheetHeader><SheetTitle>Conexão {selected?.pid}</SheetTitle><SheetDescription>Dados da sessão selecionada no momento da coleta.</SheetDescription></SheetHeader>
+        <SheetHeader><SheetTitle>Conexão {selected?.pid}</SheetTitle><SheetDescription>{selected?.state === "finished" ? "Últimos dados observados antes da finalização." : "Dados da sessão selecionada no momento da coleta."}</SheetDescription></SheetHeader>
         {selected ? <div className="flex flex-1 flex-col gap-5 px-4 pb-4">
-          <div className="flex gap-2"><Badge variant={selected.state === "active" ? "default" : "secondary"}>{selected.state || "Estado desconhecido"}</Badge>{selected.waitEvent ? <Badge variant="secondary">Em espera: {selected.waitEvent}</Badge> : null}</div>
+          <div className="flex gap-2"><Badge variant={selected.state === "active" ? "default" : "secondary"}>{selected.state === "finished" ? "Finalizado" : selected.state || "Estado desconhecido"}</Badge>{selected.state !== "finished" && selected.waitEvent ? <Badge variant="secondary">Em espera: {selected.waitEvent}</Badge> : null}</div>
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
             <dt className="text-muted-foreground"><ExplanationLabel label="PID" topicId="session-pid" onExplain={onExplain} /></dt><dd>{selected.pid}</dd>
             <dt className="text-muted-foreground"><ExplanationLabel label="Banco" topicId="session-database" onExplain={onExplain} /></dt><dd>{selected.database || "—"}</dd>
             <dt className="text-muted-foreground"><ExplanationLabel label="Usuário" topicId="session-user" onExplain={onExplain} /></dt><dd>{selected.user || "—"}</dd>
             <dt className="text-muted-foreground"><ExplanationLabel label="Aplicação" topicId="session-application" onExplain={onExplain} /></dt><dd>{selected.application || "—"}</dd>
             <dt className="text-muted-foreground"><ExplanationLabel label="Início da conexão" topicId="session-start" onExplain={onExplain} /></dt><dd>{formatTimestamp(selected.backendStart)}</dd>
-            <dt className="text-muted-foreground"><ExplanationLabel label="Início da consulta" topicId="session-query-start" onExplain={onExplain} /></dt><dd>{formatTimestamp(selected.queryStartedAt)}</dd>
-            <dt className="text-muted-foreground"><ExplanationLabel label="Duração ativa" topicId="active-query-duration" onExplain={onExplain} /></dt><dd>{formatDuration(selected.activeDurationMs)}</dd>
-            <dt className="text-muted-foreground"><ExplanationLabel label="Espera" topicId="session-wait" onExplain={onExplain} /></dt><dd>{selected.waitEventType && selected.waitEvent ? `${selected.waitEventType}: ${selected.waitEvent}` : "—"}</dd>
+            <dt className="text-muted-foreground"><ExplanationLabel label="Finalizada em" topicId="session-finished" onExplain={onExplain} /></dt><dd>{selected.finishedAt ? formatTimestamp(selected.finishedAt) : "—"}</dd>
+            {selected.state === "finished" ? <><dt className="text-muted-foreground">Dados da sessão</dt><dd>Última observação válida</dd></> : null}
+            {selected.state !== "finished" ? <><dt className="text-muted-foreground"><ExplanationLabel label="Início da consulta" topicId="session-query-start" onExplain={onExplain} /></dt><dd>{formatTimestamp(selected.queryStartedAt)}</dd><dt className="text-muted-foreground"><ExplanationLabel label="Duração ativa" topicId="active-query-duration" onExplain={onExplain} /></dt><dd>{formatDuration(selected.activeDurationMs)}</dd><dt className="text-muted-foreground"><ExplanationLabel label="Espera" topicId="session-wait" onExplain={onExplain} /></dt><dd>{selected.waitEventType && selected.waitEvent ? `${selected.waitEventType}: ${selected.waitEvent}` : "—"}</dd></> : null}
           </dl>
-          <div className="flex flex-col gap-2 rounded-lg border p-3"><strong className="text-sm"><ExplanationLabel label="Consulta e cliente" topicId="session-sensitive-details" onExplain={onExplain} /></strong>
+          {selected.state !== "finished" ? <div className="flex flex-col gap-2 rounded-lg border p-3"><strong className="text-sm"><ExplanationLabel label="Consulta e cliente" topicId="session-sensitive-details" onExplain={onExplain} /></strong>
             {details?.state === "ready" ? <><p className="break-all rounded bg-muted p-2 font-mono text-xs">{details.query || "Consulta não disponível"}</p><p className="text-xs text-muted-foreground">Cliente: {details.clientAddress || "Não disponível"}</p></> : <p className="text-xs text-muted-foreground">Ocultos por padrão. Revele apenas quando necessário para investigar esta sessão.</p>}
             {detailError ? <p role="alert" className="text-xs text-destructive">{detailError}</p> : null}
             {details?.state !== "ready" ? <Button type="button" variant="outline" size="sm" onClick={() => void revealDetails()} disabled={detailLoading}>{detailLoading ? "Consultando…" : "Revelar detalhes"}</Button> : null}
-          </div>
-          <Button type="button" variant="destructive" onClick={() => setConfirmOpen(true)} disabled={selected.backendType !== "client backend"}><X data-icon="inline-start" aria-hidden />Encerrar conexão</Button>
-          {selected.backendType !== "client backend" ? <p className="text-xs text-muted-foreground">Somente conexões cliente podem ser encerradas.</p> : null}
+          </div> : null}
+          {selected.state !== "finished" ? <Button type="button" variant="destructive" onClick={() => setConfirmOpen(true)} disabled={selected.backendType !== "client backend"}><X data-icon="inline-start" aria-hidden />Encerrar conexão</Button> : null}
+          {selected.state !== "finished" && selected.backendType !== "client backend" ? <p className="text-xs text-muted-foreground">Somente conexões cliente podem ser encerradas.</p> : null}
         </div> : null}
       </SheetContent>
     </Sheet>
-    <TerminateSessionDialog session={selected} open={confirmOpen} onOpenChange={setConfirmOpen} onConfirm={confirmTermination} />
+    <TerminateSessionDialog session={selected?.state === "finished" ? null : selected} open={confirmOpen && selected?.state !== "finished"} onOpenChange={setConfirmOpen} onConfirm={confirmTermination} />
   </>
 }

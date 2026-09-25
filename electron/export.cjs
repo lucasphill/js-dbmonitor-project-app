@@ -22,7 +22,7 @@ const COLUMNS = {
     ["Conexões", "connections"], ["Commits acumulados", "commits"], ["Rollbacks acumulados", "rollbacks"],
     ["Blocos lidos no período", "readsInPeriod"], ["Cache hits no período", "cacheHitsInPeriod"]],
   sessions: [["PID", "pid"], ["Início da sessão", "backendStart"], ["Banco", "database"],
-    ["Usuário", "user"], ["Aplicação", "application"], ["Estado", "state"],
+    ["Usuário", "user"], ["Aplicação", "application"], ["Estado", "state"], ["Finalizada em", "finishedAt"],
     ["Espera", "waitEvent"], ["Duração ativa (ms)", "activeDurationMs"]],
   logs: [["Horário", "eventAt"], ["Severidade", "severity"], ["Banco", "database"],
     ["Usuário", "user"], ["PID", "pid"], ["SQLSTATE", "sqlState"], ["Mensagem", "message"]],

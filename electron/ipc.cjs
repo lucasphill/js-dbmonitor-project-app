@@ -2,7 +2,7 @@ const path = require("node:path");
 const { ProfileInputError } = require("./connection-profiles.cjs");
 
 const MAX_PERIOD_MS = 7 * 24 * 60 * 60 * 1000;
-const SORT_COLUMNS = new Set(["duration", "startedAt", "database", "user", "state", "pid"]);
+const SORT_COLUMNS = new Set(["duration", "startedAt", "database", "user", "state", "pid", "finishedAt"]);
 const DATABASE_SORT_COLUMNS = new Set(["name", "size", "owner", "encoding", "collation", "connections", "connectionLimit", "status"]);
 const DATASETS = new Set(["database-activity", "sessions", "logs"]);
 

@@ -19,6 +19,7 @@ const states = [
   { value: "idle", label: "Ociosa" },
   { value: "idle in transaction", label: "Em transação" },
   { value: "idle in transaction (aborted)", label: "Transação abortada" },
+  { value: "finished", label: "Finalizado" },
 ]
 
 function stateLabel(state: SessionRow["state"]): string {
@@ -58,7 +59,7 @@ export function SessionsTable({
   const sortHeader = (label: string, field: NonNullable<SessionFilters["sortBy"]>, topicId: ExplanationTopicId) => <span className="inline-flex items-center gap-1 whitespace-nowrap"><Button type="button" variant="ghost" size="sm" onClick={() => onSort(field)} aria-label={`Ordenar por ${label}`} className="-ml-2"><ArrowDownUp data-icon="inline-start" aria-hidden />{label}</Button><ExplanationInfo label={label} topicId={topicId} onExplain={onExplain} /></span>
 
   return <Card className="min-w-0">
-    <CardHeader><CardTitle className="text-base font-semibold"><ExplanationLabel label="Sessões abertas" topicId="session-total" onExplain={onExplain} /></CardTitle><p className="text-xs text-muted-foreground">Consulta e endereço do cliente ficam ocultos até revelação explícita.</p></CardHeader>
+    <CardHeader><CardTitle className="text-base font-semibold"><ExplanationLabel label="Conexões observadas" topicId="session-total" onExplain={onExplain} /></CardTitle><p className="text-xs text-muted-foreground">Conexões finalizadas preservam os últimos dados observados. Consulta e endereço do cliente ficam ocultos até revelação explícita para conexões abertas.</p></CardHeader>
     <CardContent className="flex flex-col gap-4">
       <form onSubmit={(event) => { event.preventDefault(); onFilter({ search: search.trim(), database: database.trim(), user: user.trim(), application: application.trim(), state: state === "all" ? undefined : state }) }} className="flex flex-wrap items-end gap-2" aria-label="Filtros de conexões">
         <label className="flex min-w-48 flex-1 flex-col gap-1 text-xs font-medium text-muted-foreground">Busca<Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="PID, usuário, banco ou aplicação" /></label>
@@ -77,6 +78,7 @@ export function SessionsTable({
             <TableHead><ExplanationLabel label="Aplicação" topicId="session-application" onExplain={onExplain} /></TableHead>
             <TableHead>{sortHeader("Estado", "state", "session-state")}</TableHead>
             <TableHead>{sortHeader("Conectada em", "startedAt", "session-start")}</TableHead>
+            <TableHead>{sortHeader("Finalizada em", "finishedAt", "session-finished")}</TableHead>
             <TableHead><ExplanationLabel label="Consulta ativa" topicId="session-query" onExplain={onExplain} /></TableHead>
             <TableHead className="text-right">{sortHeader("Duração", "duration", "active-query-duration")}</TableHead>
             <TableHead><ExplanationLabel label="Espera" topicId="session-wait" onExplain={onExplain} /></TableHead>
@@ -88,12 +90,13 @@ export function SessionsTable({
               <TableCell>{row.database || "—"}</TableCell><TableCell>{row.user || "—"}</TableCell><TableCell>{row.application || "—"}</TableCell>
               <TableCell><Badge variant={row.state === "active" ? "default" : "secondary"}>{stateLabel(row.state)}</Badge></TableCell>
               <TableCell className="whitespace-nowrap text-xs tabular-nums">{formatTimestamp(row.backendStart)}</TableCell>
-              <TableCell className="text-xs text-muted-foreground">{row.state === "active" ? "Oculta por padrão" : "—"}</TableCell>
-              <TableCell className="text-right tabular-nums" title={row.queryStartedAt ? `Início: ${formatTimestamp(row.queryStartedAt)}` : undefined}>{formatDuration(row.activeDurationMs)}</TableCell>
-              <TableCell>{row.waitEvent ? <Badge variant="secondary">{row.waitEventType}: {row.waitEvent}</Badge> : "—"}</TableCell>
+              <TableCell className="whitespace-nowrap text-xs tabular-nums" title={row.finishedAt ? "Primeira ausência observada em coleta válida; horário estimado." : undefined}>{row.finishedAt ? formatTimestamp(row.finishedAt) : "—"}</TableCell>
+              <TableCell className="text-xs text-muted-foreground">{row.state === "finished" ? "—" : row.state === "active" ? "Oculta por padrão" : "—"}</TableCell>
+              <TableCell className="text-right tabular-nums" title={row.state !== "finished" && row.queryStartedAt ? `Início: ${formatTimestamp(row.queryStartedAt)}` : undefined}>{row.state === "finished" ? "—" : formatDuration(row.activeDurationMs)}</TableCell>
+              <TableCell>{row.state !== "finished" && row.waitEvent ? <Badge variant="secondary">{row.waitEventType}: {row.waitEvent}</Badge> : "—"}</TableCell>
               <TableCell><Button type="button" variant="outline" size="sm" onClick={() => onSelect(row)}>Detalhes</Button></TableCell>
             </TableRow>)}
-            {rows.length === 0 ? <TableRow><TableCell colSpan={10} className="py-10 text-center text-muted-foreground">{result?.sessions.reason || "Nenhuma sessão corresponde aos filtros."}</TableCell></TableRow> : null}
+            {rows.length === 0 ? <TableRow><TableCell colSpan={11} className="py-10 text-center text-muted-foreground">{result?.sessions.reason || "Nenhuma sessão corresponde aos filtros."}</TableCell></TableRow> : null}
           </TableBody>
         </Table>
       </div>

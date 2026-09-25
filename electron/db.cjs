@@ -447,6 +447,45 @@ const SESSION_SORT = Object.freeze({
   pid: "pid",
 });
 
+/** One unfiltered statement is the only source of evidence that a session is absent. */
+async function collectClientSessions() {
+  const client = await getPool().connect();
+  try {
+    const { rows } = await client.query(`SELECT a.pid,
+      to_char(a.backend_start AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS backend_start_iso,
+      d.oid AS database_oid, a.datname AS database, a.usename AS user_name,
+      a.application_name AS application, a.state, a.wait_event_type,
+      a.wait_event, a.backend_type,
+      CASE WHEN a.state = 'active' THEN a.query_start END AS query_started_at,
+      a.xact_start AS transaction_started_at,
+      CASE WHEN a.state = 'active' AND a.query_start IS NOT NULL
+        THEN GREATEST(0,EXTRACT(EPOCH FROM clock_timestamp()-a.query_start)*1000)
+        ELSE NULL END AS active_duration_ms
+      FROM pg_stat_activity a LEFT JOIN pg_database d ON d.datname=a.datname
+      WHERE a.backend_type = 'client backend'`);
+    if (!Array.isArray(rows)) throw new TypeError("Incomplete session snapshot");
+    const seen = new Set();
+    const mapped = rows.map((row) => {
+      const identity = checkedIdentity({ pid: row.pid, backendStart: row.backend_start_iso });
+      const key = `${identity.pid}:${identity.backendStart}`;
+      if (seen.has(key)) throw new TypeError("Duplicate session identity");
+      seen.add(key);
+      return {
+        ...identity, databaseOid: safeNumber(row.database_oid), database: row.database,
+        user: row.user_name, application: row.application || "", state: row.state,
+        waitEventType: row.wait_event_type, waitEvent: row.wait_event,
+        backendType: row.backend_type, queryStartedAt: row.query_started_at?.toISOString() || null,
+        transactionStartedAt: row.transaction_started_at?.toISOString() || null,
+        activeDurationMs: row.active_duration_ms == null ? null : Math.max(0, Number(row.active_duration_ms)),
+        finishedAt: null,
+      };
+    });
+    return { rows: mapped, updatedAt: new Date().toISOString() };
+  } finally {
+    client.release();
+  }
+}
+
 function checkedSessionFilters(input = {}) {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new TypeError("Invalid session filters");
   const filters = {};
@@ -709,7 +748,7 @@ async function closeDatabase() {
 
 module.exports = {
   getPool, detectCapabilities, collectSnapshot, getDatabaseStats, listDatabaseInventory,
-  listSessions, revealSessionDetails, terminateSession, getQueryAggregates,
+  listSessions, collectClientSessions, revealSessionDetails, terminateSession, getQueryAggregates,
   getGlobalQueryLatency, closeDatabase,
   setActiveProfile, testConnection, connectionConfig, classifyConnectionError, currentProfile,
 };

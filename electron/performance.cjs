@@ -28,7 +28,8 @@ function block(points, source, unit, available = true, reason) {
 function buildPerformance({ history, sessions, aggregates, capabilities, maxGapMs }) {
   const rows = history.instance || [];
   const wal = series(rows, "wal_bytes", true, maxGapMs);
-  const io = series(rows, "io_reads", true, maxGapMs);
+  const ioReads = series(rows, "io_reads", true, maxGapMs);
+  const ioWrites = series(rows, "io_writes", true, maxGapMs);
   const duration = series(rows, "duration_ms", false, maxGapMs);
   return {
     activeQueries: { state: "ready", source: "pg_stat_activity", updatedAt: sessions.updatedAt,
@@ -39,7 +40,9 @@ function buildPerformance({ history, sessions, aggregates, capabilities, maxGapM
       data: { rows: aggregates.rows, total: aggregates.total, nextCursor: aggregates.nextCursor } },
     walSeries: block(wal, "pg_stat_wal + SQLite", "bytes/coleta", capabilities.wal?.available,
       capabilities.wal?.reason),
-    ioSeries: block(io, "pg_stat_io + SQLite", "operações/coleta", capabilities.io?.available,
+    ioReadsSeries: block(ioReads, "pg_stat_io + SQLite", "operações/coleta", capabilities.io?.available,
+      capabilities.io?.reason),
+    ioWritesSeries: block(ioWrites, "pg_stat_io + SQLite", "operações/coleta", capabilities.io?.available,
       capabilities.io?.reason),
     collectionDurationSeries: block(duration, "Coletor local + SQLite", "ms"),
   };

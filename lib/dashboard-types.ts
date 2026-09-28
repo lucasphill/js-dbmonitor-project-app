@@ -250,7 +250,8 @@ export interface Performance {
   activeQueries: DataBlock<Paginated<SessionRow>>;
   queryAggregates: DataBlock<Paginated<QueryAggregate>>;
   walSeries: DataBlock<TimePoint[]>;
-  ioSeries: DataBlock<TimePoint[]>;
+  ioReadsSeries: DataBlock<TimePoint[]>;
+  ioWritesSeries: DataBlock<TimePoint[]>;
   collectionDurationSeries: DataBlock<TimePoint[]>;
 }
 

@@ -69,9 +69,10 @@ export function PerformanceView({ onExplain }: { onExplain: ExplainAction }) {
       {history.performanceError ? <p className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive" role="alert">{history.performanceError}</p> : null}
       {history.loading && !data ? <p role="status" className="text-sm text-muted-foreground">Carregando desempenho…</p> : null}
       {data ? <>
-        <div className="grid min-w-0 gap-4 xl:grid-cols-3">
+        <div className="grid min-w-0 gap-4 xl:grid-cols-4">
           <HistorySeriesCard title="Atividade WAL" block={data.walSeries} unit={data.walSeries.unit || "bytes/coleta"} topicId="wal-per-collection" onExplain={onExplain} />
-          <HistorySeriesCard title="Operações de I/O" block={data.ioSeries} unit={data.ioSeries.unit || "operações/coleta"} topicId="io-per-collection" onExplain={onExplain} />
+          <HistorySeriesCard title="Leituras (entrada)" block={data.ioReadsSeries} unit={data.ioReadsSeries.unit || "operações/coleta"} topicId="io-reads-per-collection" onExplain={onExplain} />
+          <HistorySeriesCard title="Gravações (saída)" block={data.ioWritesSeries} unit={data.ioWritesSeries.unit || "operações/coleta"} topicId="io-writes-per-collection" onExplain={onExplain} />
           <HistorySeriesCard title="Tempo da coleta" block={data.collectionDurationSeries} unit="ms" topicId="collection-duration" onExplain={onExplain} />
         </div>
         <div className="grid min-w-0 gap-4 xl:grid-cols-2">

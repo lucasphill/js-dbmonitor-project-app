@@ -1,12 +1,12 @@
 "use client"
 
 import { useState } from "react"
-import { Clock3, Download, RefreshCw, Users, X } from "lucide-react"
+import { Clock3, RefreshCw, Users, X } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
-import type { OperationResult, SessionDetails, SessionFilters, SessionRow, SourceContext } from "@/lib/dashboard-types"
+import type { ExportFormat, OperationResult, SessionDetails, SessionFilters, SessionRow, SourceContext } from "@/lib/dashboard-types"
 import { formatDuration, formatNumber, formatTimestamp } from "@/lib/format"
 import { useSessions } from "../hooks/use-sessions"
 import { SessionsChart } from "./sessions-chart"
@@ -14,6 +14,7 @@ import { SessionsTable } from "./sessions-table"
 import { SourceStatus } from "./source-status"
 import { TerminateSessionDialog } from "./terminate-session-dialog"
 import { ExplanationLabel, type ExplainAction } from "./explanation-info"
+import { ExportMenu, exportResultNotice } from "./export-menu"
 
 const initialFilters: SessionFilters = { sortBy: "duration", sortDirection: "desc", page: { limit: 25 } }
 
@@ -90,13 +91,13 @@ export function ConnectionsView({ onExplain, source }: { onExplain: ExplainActio
     return next
   }
 
-  async function exportCurrentFilters() {
+  async function exportCurrentFilters(format: ExportFormat) {
     if (!window.bdash) return
     setExporting(true); setExportMessage(null)
     try {
       if (!result?.sourceContext) throw new Error("Atualize as sessões antes de exportar.")
-      const exported = await window.bdash.exportFiltered({ dataset: "sessions", sourceContext: result.sourceContext, sessionFilters: { ...filters, page: { limit: 200 } } })
-      if (!exported.canceled) setExportMessage(`CSV exportado: ${exported.rowCount} sessões.`)
+      const exported = await window.bdash.exportFiltered({ format, dataset: "sessions", sourceContext: result.sourceContext, sessionFilters: { ...filters, page: { limit: 200 } } })
+      setExportMessage(exportResultNotice(exported, "sessões"))
     } catch (cause) { setExportMessage(cause instanceof Error ? cause.message : "Falha ao exportar conexões.") }
     finally { setExporting(false) }
   }
@@ -104,7 +105,7 @@ export function ConnectionsView({ onExplain, source }: { onExplain: ExplainActio
   return <>
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div><h1 className="text-3xl font-bold tracking-tight">Conexões</h1><p className="mt-1 text-sm text-muted-foreground">Sessões atuais e conexões finalizadas observadas nesta execução.</p></div>
-      <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" size="sm" onClick={() => void refresh(true)} disabled={loading}><RefreshCw data-icon="inline-start" aria-hidden />Atualizar sessões</Button><Button type="button" variant="outline" size="sm" onClick={() => void exportCurrentFilters()} disabled={exporting}><Download data-icon="inline-start" aria-hidden />Exportar CSV</Button></div>
+      <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" size="sm" onClick={() => void refresh(true)} disabled={loading}><RefreshCw data-icon="inline-start" aria-hidden />Atualizar sessões</Button><ExportMenu formats={["csv", "json"]} onExport={(format) => void exportCurrentFilters(format)} busy={exporting} disabled={!result?.sourceContext} /></div>
     </div>
     {error ? <p role="alert" className="rounded-lg border border-destructive/40 bg-card p-3 text-sm text-destructive">{error}</p> : null}
     {operation ? <p role="status" className="rounded-lg border bg-card p-3 text-sm">{operation.message}</p> : null}

@@ -11,7 +11,8 @@ const { buildOverview } = require("./overview.cjs");
 const { buildDatabaseActivity, analyzeDatabases } = require("./analytics.cjs");
 const { buildPerformance } = require("./performance.cjs");
 const { ingestCsvLog } = require("./logs.cjs");
-const { COLUMNS, writeCsv } = require("./export.cjs");
+const { COLUMNS, writeCsv, toJson } = require("./export.cjs");
+const { buildExecutiveReport } = require("./executive-report.cjs");
 const { createSessionHistory } = require("./sessions-history.cjs");
 const { createStartupService, createWindowActivationCoordinator } = require("./startup.cjs");
 const { IpcInputError, wrapHandler, period, page, profileId, sourceContext, confirmation, sessionFilters,
@@ -280,31 +281,174 @@ app.whenReady().then(async () => {
     const expected = sourceContext(input?.sourceContext);
     const request = exportRequest(input);
     return controller.guardAdmin(expected, async () => {
-    const context = active();
-    let rows;
-    if (request.dataset === "database-activity") {
-      const history = storage.getSamples(context.profile.id, request.period || period(undefined, { optional: true }));
-      rows = analyzeDatabases(history.databases, {
-        maxGapMs: storage.getPreferences(context.profile.id).collectionIntervalSeconds * 3000,
-      }).ranking.slice(0, 10000);
-    } else if (request.dataset === "sessions") {
-      const filters = request.sessionFilters || sessionFilters({});
-      await refreshSessions(context);
-      rows = sessionHistory.project(context.profile.id, filters, { all: true }).rows;
-    } else {
-      const filters = request.logFilters || logFilters({ period: request.period || period(undefined, { optional: true }) });
-      rows = [];
-      for (let offset = 0; offset < 10000; offset += 200) {
-        const result = storage.getLogs(context.profile.id, { ...filters, page: { limit: 200, cursor: String(offset) } });
-        rows.push(...result.rows);
-        if (!result.nextCursor) break;
+      const context = active();
+      if (request.format === "pdf" && request.dataset === "executive-summary") {
+        const queryLatency = await db.getGlobalQueryLatency().catch(() => ({ available: false, value: null }));
+        controller.assertContext(context.sourceContext);
+        const overview = buildOverview({ collector: context.collector, storage, profile: context.profile,
+          period: request.period, queryLatency });
+        const history = storage.getSamples(context.profile.id, request.period);
+        const preferences = storage.getPreferences(context.profile.id);
+        let logCount = null;
+        if (overview.capabilities.logs?.available) {
+          logCount = storage.getLogs(context.profile.id, { period: request.period, page: { limit: 1 } }).total;
+        }
+        const generatedAt = new Date().toISOString();
+        const report = buildExecutiveReport({ generatedAt,
+          source: { profile: context.profile.label, database: context.profile.database },
+          period: request.period, overview, history, logCount,
+          collectionIntervalSeconds: preferences.collectionIntervalSeconds });
+        const destination = await dialog.showSaveDialog(mainWindow, {
+          defaultPath: "dbmonitor-resumo-executivo.pdf",
+          filters: [{ name: "PDF", extensions: ["pdf"] }],
+        });
+        if (destination.canceled || !destination.filePath) {
+          return withContext(context, { canceled: true, cancelReason: "destination", rowCount: 0, format: "pdf" });
+        }
+        controller.assertContext(context.sourceContext);
+
+        const reportWindow = new BrowserWindow({
+          show: false,
+          width: 900,
+          height: 1200,
+          backgroundColor: "#ffffff",
+          webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+        });
+        reportWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+        reportWindow.webContents.on("will-navigate", (event, url) => {
+          if (!url.startsWith("data:text/html;charset=utf-8,")) event.preventDefault();
+        });
+        try {
+          await reportWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(report.html)}`);
+          const pdf = await reportWindow.webContents.printToPDF({
+            pageSize: "A4",
+            printBackground: true,
+            margins: { top: 0.45, bottom: 0.45, left: 0.45, right: 0.45 },
+          });
+          controller.assertContext(context.sourceContext);
+          fs.writeFileSync(destination.filePath, pdf);
+        } finally {
+          if (!reportWindow.isDestroyed()) reportWindow.close();
+        }
+        return withContext(context, { canceled: false, filePath: destination.filePath,
+          format: "pdf", rowCount: report.metricCount, truncated: false });
       }
-    }
-    const result = await dialog.showSaveDialog({ defaultPath: `dbmonitor-${request.dataset}.csv`,
-      filters: [{ name: "CSV", extensions: ["csv"] }] });
-    if (result.canceled || !result.filePath) return withContext(context, { canceled: true, rowCount: 0 });
-    controller.assertContext(context.sourceContext);
-    return withContext(context, await writeCsv(result.filePath, rows, COLUMNS[request.dataset]));
+      if (!new Set(["csv", "json"]).has(request.format) || request.dataset === "executive-summary") {
+        throw new IpcInputError("Esta combinação de exportação ainda não está disponível");
+      }
+      let rows = [];
+      let total = 0;
+      let observationAt = null;
+      let availability = { state: "available", notes: [] };
+      let appliedFilters = {};
+
+      if (request.dataset === "database-activity") {
+        const history = storage.getSamples(context.profile.id, request.period);
+        const ranking = analyzeDatabases(history.databases, {
+          maxGapMs: storage.getPreferences(context.profile.id).collectionIntervalSeconds * 3000,
+        }).ranking;
+        total = ranking.length;
+        rows = ranking.slice(0, 10000);
+        if (!history.instance.length && !history.databases.length) {
+          availability = { state: "empty", notes: ["Nenhuma amostra disponível no período selecionado."] };
+        } else if (!ranking.some((row) => row.transactionsInPeriod !== null)) {
+          availability = { state: "insufficient", notes: ["Não há duas amostras comparáveis suficientes para calcular variações no período."] };
+        }
+      } else if (request.dataset === "sessions") {
+        const filters = request.sessionFilters || sessionFilters({});
+        await refreshSessions(context);
+        controller.assertContext(context.sourceContext);
+        const snapshot = sessionHistory.project(context.profile.id, filters, { all: true });
+        total = snapshot.total;
+        observationAt = snapshot.updatedAt || null;
+        rows = snapshot.rows.slice(0, 10000);
+        appliedFilters = { database: filters.database, user: filters.user, application: filters.application,
+          state: filters.state, search: filters.search, sortBy: filters.sortBy, sortDirection: filters.sortDirection };
+        if (!observationAt) availability = { state: "unavailable", notes: ["Ainda não há uma observação válida de sessões nesta execução."] };
+      } else if (request.dataset === "logs") {
+        const filters = request.logFilters || logFilters({ period: request.period });
+        const logSourcePath = context.profile.authMode === "rds_iam" ? null
+          : storage.getPreferences(context.profile.id).logSourcePath;
+        const logState = context.collector.getLogStatus();
+        if (!logSourcePath) {
+          return withContext(context, { canceled: false, empty: true, rowCount: 0, format: request.format,
+            message: context.profile.authMode === "rds_iam"
+              ? "Logs CSV locais não estão disponíveis para esta origem RDS."
+              : "Nenhuma fonte CSV de logs está configurada." });
+        }
+        for (let offset = 0; offset < 10000; offset += 200) {
+          controller.assertContext(context.sourceContext);
+          const result = storage.getLogs(context.profile.id, { ...filters, page: { limit: 200, cursor: String(offset) } });
+          if (offset === 0) total = result.total;
+          rows.push(...result.rows);
+          if (!result.nextCursor) break;
+        }
+        appliedFilters = { severity: filters.severity, database: filters.database, user: filters.user,
+          pid: filters.pid, search: filters.search };
+        if (["unavailable", "partial"].includes(logState.state)) {
+          availability = { state: "partial", notes: [logState.reason || "A fonte de logs está indisponível; os registros existentes no histórico local são exportados."] };
+        }
+      } else {
+        throw new IpcInputError("O resumo executivo PDF ainda não está disponível");
+      }
+
+      controller.assertContext(context.sourceContext);
+      const truncated = total > rows.length;
+      if (availability.state === "empty" || rows.length === 0) {
+        return withContext(context, { canceled: false, empty: true, rowCount: 0, format: request.format,
+          message: availability.notes[0] || "Nenhum registro corresponde ao período e filtros selecionados." });
+      }
+
+      if (request.dataset === "sessions" || request.dataset === "logs") {
+        const sessionDisclosure = request.dataset === "sessions"
+          ? "A exportação inclui PID, banco, usuário, aplicação, tipo e estado do backend, eventos de espera, duração e horários de conexão, consulta ativa e transação."
+          : "A exportação inclui mensagens brutas dos logs do PostgreSQL, além de banco, usuário, PID e SQLSTATE quando disponíveis. As mensagens podem conter dados operacionais ou pessoais.";
+        const confirmationResult = await dialog.showMessageBox(mainWindow, {
+          type: "warning",
+          title: "Revise os dados da exportação",
+          message: sessionDisclosure,
+          detail: "Credenciais, texto de consulta e endereço do cliente não são incluídos. Continue somente se estiver de acordo em salvar esses dados no arquivo escolhido.",
+          buttons: ["Continuar", "Cancelar"],
+          defaultId: 1,
+          cancelId: 1,
+          noLink: true,
+        });
+        if (confirmationResult.response !== 0) {
+          return withContext(context, { canceled: true, cancelReason: "privacy", rowCount: 0, format: request.format });
+        }
+        controller.assertContext(context.sourceContext);
+      }
+
+      const extension = request.format;
+      const result = await dialog.showSaveDialog(mainWindow, {
+        defaultPath: `dbmonitor-${request.dataset}.${extension}`,
+        filters: [{ name: extension.toUpperCase(), extensions: [extension] }],
+      });
+      if (result.canceled || !result.filePath) {
+        return withContext(context, { canceled: true, cancelReason: "destination", rowCount: 0, format: request.format });
+      }
+
+      controller.assertContext(context.sourceContext);
+      const generatedAt = new Date().toISOString();
+      const source = { profile: context.profile.label, database: context.profile.database };
+      const periodMetadata = request.dataset === "sessions"
+        ? { type: "snapshot", observedAt: observationAt }
+        : request.period;
+      const periodLabel = request.dataset === "sessions"
+        ? `Retrato atual; observado em ${observationAt}`
+        : `${request.period.from} até ${request.period.to}`;
+      const exportContext = {
+        generatedAt, source, datasetLabel: request.dataset, periodLabel,
+        availability: availability.state, availabilityNotes: availability.notes, truncated,
+      };
+      if (request.format === "csv") {
+        writeCsv(result.filePath, rows, COLUMNS[request.dataset], exportContext);
+      } else {
+        fs.writeFileSync(result.filePath, toJson({ dataset: request.dataset, rows, generatedAt, source,
+          period: periodMetadata, filters: appliedFilters, availability, truncated }), { encoding: "utf8" });
+      }
+      return withContext(context, { canceled: false, filePath: result.filePath, format: request.format,
+        rowCount: rows.length, truncated });
     });
   });
   register("dashboard:terminate-session", async (input) => {

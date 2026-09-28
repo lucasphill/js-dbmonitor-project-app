@@ -1,19 +1,20 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
-import { Download, FileText, RefreshCw, Search } from "lucide-react"
+import { FileText, RefreshCw, Search } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import type { DataBlock, LogEvent, LogFilters, Paginated, Period } from "@/lib/dashboard-types"
+import type { DataBlock, ExportFormat, LogEvent, LogFilters, Paginated, Period } from "@/lib/dashboard-types"
 import { formatNumber, formatTimestamp } from "@/lib/format"
 import type { HistoryPreset } from "@/app/hooks/use-history"
 import { PeriodSelector } from "./period-selector"
 import { SourceStatus } from "./source-status"
 import { ExplanationLabel, type ExplainAction } from "./explanation-info"
+import { ExportMenu, exportResultNotice } from "./export-menu"
 
 const PAGE_SIZE = 50
 const WINDOW_MS = { "1h": 3_600_000, "24h": 86_400_000, "7d": 604_800_000 } as const
@@ -106,12 +107,13 @@ export function LogsView({ onConfigure, onExplain }: { onConfigure?: () => void;
     setCursor("0")
   }
 
-  async function exportCurrentFilters() {
+  async function exportCurrentFilters(format: ExportFormat) {
     if (!window.bdash) return
     setExporting(true); setExportMessage(null)
     try {
       if (!block?.sourceContext) throw new Error("Atualize os logs antes de exportar.")
       const exported = await window.bdash.exportFiltered({
+        format,
         dataset: "logs",
         sourceContext: block.sourceContext,
         logFilters: {
@@ -124,7 +126,7 @@ export function LogsView({ onConfigure, onExplain }: { onConfigure?: () => void;
           page: { limit: PAGE_SIZE },
         },
       })
-      if (!exported.canceled) setExportMessage(`CSV exportado: ${exported.rowCount} eventos.`)
+      setExportMessage(exportResultNotice(exported, "eventos"))
     } catch (cause) { setExportMessage(cause instanceof Error ? cause.message : "Falha ao exportar logs.") }
     finally { setExporting(false) }
   }
@@ -144,9 +146,7 @@ export function LogsView({ onConfigure, onExplain }: { onConfigure?: () => void;
       </div>
       <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" onClick={() => void load(true)} disabled={loading}>
         <RefreshCw data-icon="inline-start" /> Atualizar
-      </Button><Button type="button" variant="outline" onClick={() => void exportCurrentFilters()} disabled={exporting || unavailable}>
-        <Download data-icon="inline-start" aria-hidden />Exportar CSV
-      </Button></div>
+      </Button><ExportMenu formats={["csv", "json"]} onExport={(format) => void exportCurrentFilters(format)} busy={exporting} disabled={unavailable || !block?.sourceContext} /></div>
     </div>
 
     {exportMessage ? <p role="status" className="rounded-lg border bg-card p-3 text-sm">{exportMessage}</p> : null}

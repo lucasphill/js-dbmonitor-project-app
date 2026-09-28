@@ -1,14 +1,14 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { ArrowDownUp, Download, Search } from "lucide-react"
+import { ArrowDownUp, Search } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import type { DatabaseInventory, DatabaseInventoryFilters } from "@/lib/dashboard-types"
+import type { DatabaseInventory, DatabaseInventoryFilters, ExportFormat } from "@/lib/dashboard-types"
 import { formatDatabaseSize, formatNumber } from "@/lib/format"
 import { useHistory } from "@/app/hooks/use-history"
 import { HistorySeriesCard } from "./performance-view"
@@ -16,6 +16,7 @@ import { PeriodSelector } from "./period-selector"
 import { SourceStatus } from "./source-status"
 import { ExplanationInfo, ExplanationLabel, type ExplainAction } from "./explanation-info"
 import type { ExplanationTopicId } from "@/lib/explanations"
+import { ExportMenu, exportResultNotice } from "./export-menu"
 
 const databaseStates = [
   { value: "all", label: "Todos os estados" },
@@ -89,13 +90,13 @@ export function DatabasesView({ onExplain }: { onExplain: ExplainAction }) {
       <span className="inline-flex items-center gap-1 whitespace-nowrap"><Button type="button" variant="ghost" size="sm" onClick={() => sortInventory(field)} aria-label={`Ordenar por ${label}`} className={numeric ? undefined : "-ml-2"}><ArrowDownUp data-icon="inline-start" aria-hidden />{label}</Button><ExplanationInfo label={label} topicId={inventoryTopics[field]} onExplain={onExplain} /></span>
     </TableHead>
 
-  async function exportCurrentPeriod() {
+  async function exportCurrentPeriod(format: ExportFormat) {
     if (!window.bdash) return
     setExporting(true); setExportMessage(null)
     try {
       if (!data?.sourceContext) throw new Error("Atualize os dados antes de exportar.")
-      const result = await window.bdash.exportFiltered({ dataset: "database-activity", period: history.period, sourceContext: data.sourceContext })
-      if (!result.canceled) setExportMessage(`CSV exportado: ${result.rowCount} bancos.`)
+      const result = await window.bdash.exportFiltered({ format, dataset: "database-activity", period: history.period, sourceContext: data.sourceContext })
+      setExportMessage(exportResultNotice(result, "bancos"))
     } catch (cause) { setExportMessage(cause instanceof Error ? cause.message : "Falha ao exportar CSV.") }
     finally { setExporting(false) }
   }
@@ -106,7 +107,7 @@ export function DatabasesView({ onExplain }: { onExplain: ExplainAction }) {
         <div className="flex flex-wrap items-end gap-2">
           <PeriodSelector preset={history.preset} customPeriod={history.customPeriod} onChange={history.choosePeriod} />
           <Button variant="outline" size="sm" onClick={() => { void history.refresh(true); void loadInventory() }} disabled={history.loading || inventoryLoading}>Atualizar</Button>
-          <Button variant="outline" size="sm" onClick={() => void exportCurrentPeriod()} disabled={exporting}><Download data-icon="inline-start" aria-hidden />Exportar CSV</Button>
+          <ExportMenu formats={["csv", "json"]} onExport={(format) => void exportCurrentPeriod(format)} busy={exporting} disabled={!data?.sourceContext} />
         </div>
       </div>
       {history.databaseError ? <p className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive" role="alert">{history.databaseError}</p> : null}

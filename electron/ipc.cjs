@@ -5,6 +5,8 @@ const MAX_PERIOD_MS = 7 * 24 * 60 * 60 * 1000;
 const SORT_COLUMNS = new Set(["duration", "startedAt", "database", "user", "state", "pid", "finishedAt"]);
 const DATABASE_SORT_COLUMNS = new Set(["name", "size", "owner", "encoding", "collation", "connections", "connectionLimit", "status"]);
 const DATASETS = new Set(["database-activity", "sessions", "logs"]);
+const EXPORT_FORMATS = new Set(["csv", "json", "pdf"]);
+const EXPORT_DATASETS = new Set([...DATASETS, "executive-summary"]);
 
 class IpcInputError extends Error {
   constructor(message, code = "INVALID_INPUT") {
@@ -162,12 +164,28 @@ function preferences(value) {
 }
 
 function exportRequest(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value) || !DATASETS.has(value.dataset)) throw new IpcInputError("Exportação inválida");
+  if (!value || typeof value !== "object" || Array.isArray(value) || !EXPORT_DATASETS.has(value.dataset)) throw new IpcInputError("Exportação inválida");
+  const format = string(value.format, "Formato", 12);
+  if (!EXPORT_FORMATS.has(format)) throw new IpcInputError("Formato de exportação inválido");
+  if (value.dataset === "executive-summary" ? format !== "pdf" : format === "pdf") {
+    throw new IpcInputError("Formato incompatível com o conjunto de dados");
+  }
+  if (value.dataset !== "sessions" && value.sessionFilters !== undefined) throw new IpcInputError("Filtros de sessão incompatíveis");
+  if (value.dataset !== "logs" && value.logFilters !== undefined) throw new IpcInputError("Filtros de log incompatíveis");
+  const requestedPeriod = value.period ? period(value.period) : undefined;
+  let parsedLogFilters;
+  if (value.dataset === "logs") {
+    parsedLogFilters = logFilters(value.logFilters || { period: requestedPeriod || period(undefined, { optional: true }) });
+    if (requestedPeriod) parsedLogFilters.period = requestedPeriod;
+  }
+  const selectedPeriod = requestedPeriod || parsedLogFilters?.period;
+  if (value.dataset !== "sessions" && !selectedPeriod) throw new IpcInputError("Selecione um período para exportar");
   return {
+    format,
     dataset: value.dataset,
-    period: value.period ? period(value.period) : undefined,
+    period: selectedPeriod,
     sessionFilters: value.sessionFilters ? sessionFilters(value.sessionFilters) : undefined,
-    logFilters: value.logFilters ? logFilters(value.logFilters) : undefined,
+    logFilters: parsedLogFilters,
   };
 }
 

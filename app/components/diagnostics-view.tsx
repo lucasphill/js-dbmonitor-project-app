@@ -1,16 +1,17 @@
 "use client"
 
 import { useCallback, useEffect, useState, type FormEvent } from "react"
-import { Download, RefreshCw, Save } from "lucide-react"
+import { RefreshCw, Save } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import type { CapabilityMap, ConnectionProfile, Diagnostics, ExportDataset, Preferences, ProfileDraft, SourceContext, StartupState } from "@/lib/dashboard-types"
+import type { CapabilityMap, ConnectionProfile, Diagnostics, ExportDataset, ExportFormat, Preferences, ProfileDraft, SourceContext, StartupState } from "@/lib/dashboard-types"
 import { formatAge, formatBytes, formatTimestamp } from "@/lib/format"
 import { ConnectionProfileForm } from "./connection-profile-form"
 import { profileDescription } from "./connection-profile-selector"
+import { ExportMenu, exportResultNotice } from "./export-menu"
 
 type ExportWindow = "1h" | "24h" | "7d"
 const windows: Record<ExportWindow, number> = { "1h": 1, "24h": 24, "7d": 168 }
@@ -184,15 +185,16 @@ export function DiagnosticsView({ profiles, source, onProfilesChanged, onSelectP
     finally { setRetrying(false) }
   }
 
-  async function exportCsv() {
+  async function exportData(format: ExportFormat) {
     if (!window.bdash || !source) return
     setExporting(true); setError(null); setNotice(null)
     try {
       const to = new Date()
       const period = { from: new Date(to.getTime() - windows[exportWindow] * 3_600_000).toISOString(), to: to.toISOString() }
-      const result = await window.bdash.exportFiltered({ dataset, period, sourceContext: source })
-      if (!result.canceled) setNotice(`CSV exportado: ${result.rowCount} linhas.`)
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Falha na exportação CSV.") }
+      const outputDataset = format === "pdf" ? "executive-summary" : dataset
+      const result = await window.bdash.exportFiltered({ format, dataset: outputDataset, period, sourceContext: source })
+      setNotice(exportResultNotice(result, "linhas"))
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Falha na exportação.") }
     finally { setExporting(false) }
   }
 
@@ -252,12 +254,12 @@ export function DiagnosticsView({ profiles, source, onProfilesChanged, onSelectP
           <Button type="submit" size="sm" disabled={!preferences || saving}><Save data-icon="inline-start" aria-hidden />{saving ? "Salvando…" : "Salvar preferências"}</Button>
         </form>
       </CardContent></Card>
-      <Card><CardHeader><CardTitle className="text-base font-semibold">Exportar CSV</CardTitle></CardHeader><CardContent className="flex flex-col gap-4 text-sm">
-        <p className="text-muted-foreground">Escolha o conjunto e o período para exportar. O arquivo não inclui credenciais; o destino é escolhido no sistema.</p>
+      <Card><CardHeader><CardTitle className="text-base font-semibold">Exportar dados</CardTitle></CardHeader><CardContent className="flex flex-col gap-4 text-sm">
+        <p className="text-muted-foreground">CSV e JSON exportam o conjunto selecionado. O PDF resume a origem inteira no período escolhido. Credenciais não são incluídas; o destino é escolhido no sistema.</p>
         <label className="flex flex-col gap-1 font-medium">Conjunto de dados<Select value={dataset} onValueChange={(value) => setDataset(value as ExportDataset)} items={datasets}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectGroup>{datasets.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectGroup></SelectContent></Select></label>
         <label className="flex flex-col gap-1 font-medium">Período<Select value={exportWindow} onValueChange={(value) => setExportWindow(value as ExportWindow)} items={[{ value: "1h", label: "Última hora" }, { value: "24h", label: "Últimas 24 horas" }, { value: "7d", label: "Últimos 7 dias" }]}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectGroup><SelectItem value="1h">Última hora</SelectItem><SelectItem value="24h">Últimas 24 horas</SelectItem><SelectItem value="7d">Últimos 7 dias</SelectItem></SelectGroup></SelectContent></Select></label>
         {dataset === "sessions" ? <p className="text-xs text-muted-foreground">Sessões são um retrato do momento atual; o período não altera esse conjunto.</p> : null}
-        <Button type="button" variant="outline" size="sm" onClick={() => void exportCsv()} disabled={exporting}><Download data-icon="inline-start" aria-hidden />{exporting ? "Exportando…" : "Exportar CSV"}</Button>
+        <ExportMenu formats={["csv", "json", "pdf"]} onExport={(format) => void exportData(format)} busy={exporting} disabled={!source} />
       </CardContent></Card>
     </div>
   </section>

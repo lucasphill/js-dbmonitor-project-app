@@ -310,10 +310,12 @@ export interface RefreshResult {
   finishedAt?: ISODate;
 }
 
-export type ExportDataset = "database-activity" | "sessions" | "logs";
+export type ExportFormat = "csv" | "json" | "pdf";
+export type ExportDataset = "database-activity" | "sessions" | "logs" | "executive-summary";
 
 export interface ExportRequest {
   sourceContext: SourceContext;
+  format: ExportFormat;
   dataset: ExportDataset;
   period?: Period;
   sessionFilters?: SessionFilters;
@@ -323,8 +325,13 @@ export interface ExportRequest {
 export interface ExportResult {
   sourceContext?: SourceContext;
   canceled: boolean;
+  cancelReason?: "destination" | "privacy";
   filePath?: string;
+  format?: ExportFormat;
   rowCount: number;
+  empty?: boolean;
+  truncated?: boolean;
+  message?: string;
 }
 
 /** Public renderer contract. The main process validates every input at runtime. */

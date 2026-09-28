@@ -110,7 +110,11 @@ Cada consulta histórica cobre até **7 dias**. Para examinar dados anteriores a
 
 O botão **Encerrar conexão** atua em uma linha da tabela. O diálogo mostra a identidade e o risco de abortar a transação; cancelar não chama o banco. Ao confirmar, o processo principal reconsulta PID e `backend_start`, protege seus próprios processos e backends internos e chama `pg_terminate_backend` com parâmetros e timeout positivo. Sucesso só é mostrado quando o PostgreSQL confirma. A tentativa e seu resultado são registrados no SQLite.
 
-A exportação CSV usa o recorte/filtros escolhidos, limita o volume, neutraliza fórmulas de planilha e não inclui credenciais. A exportação de sessões não inclui texto da query nem endereço do cliente; mensagens de logs podem conter informação sensível emitida pelo próprio servidor, então revise o arquivo antes de compartilhá-lo.
+As telas de Conexões, Bancos, Logs e Configurações permitem exportar CSV ou JSON. Os arquivos incluem a origem selecionada, o horário de geração, o período ou retrato atual e as ressalvas conhecidas; o JSON também descreve os campos, tipos, unidades e significado para análise automatizada e por LLMs. CSV e JSON respeitam os filtros escolhidos e os limites de volume. O CSV neutraliza fórmulas de planilha.
+
+Em **Configurações → Exportar dados**, selecione um período e gere um **PDF — Resumo executivo** com os principais indicadores disponíveis e a cobertura das fontes. Valores indisponíveis, amostras insuficientes e lacunas são descritos como limitações, não como zero medido. O resumo PDF não contém mensagens brutas de logs, texto de consultas nem endereço do cliente.
+
+Nenhum formato inclui credenciais ou tokens. Antes de exportar sessões ou logs, o DBMonitor informa os campos incluídos; mensagens de logs podem conter informação operacional ou pessoal emitida pelo próprio servidor. Revise esses arquivos antes de compartilhá-los ou enviá-los a um LLM. Sessões exportadas são um retrato observado, não um histórico completo de conexões.
 
 ## Verificação local
 

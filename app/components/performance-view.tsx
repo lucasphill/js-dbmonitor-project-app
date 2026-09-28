@@ -14,6 +14,13 @@ import { PeriodSelector } from "./period-selector"
 import { SourceStatus } from "./source-status"
 
 const config = { value: { label: "Valor", color: "var(--chart-1)" } } satisfies ChartConfig
+const unavailableIoSeries = (direction: "leitura" | "gravação"): DataBlock<TimePoint[]> => ({
+  state: "unavailable",
+  source: "pg_stat_io + SQLite",
+  unit: "operações/coleta",
+  reason: `A série de ${direction} não foi retornada pelo coletor. Reinicie o DBMonitor para atualizá-lo.`,
+  data: [],
+})
 
 export function HistorySeriesCard({ title, block, unit, topicId, onExplain }: {
   title: string
@@ -55,6 +62,9 @@ export function HistorySeriesCard({ title, block, unit, topicId, onExplain }: {
 export function PerformanceView({ onExplain }: { onExplain: ExplainAction }) {
   const history = useHistory("performance")
   const data = history.performance
+  const legacyIoSeries = data?.ioSeries
+  const ioReadsSeries = data?.ioReadsSeries ?? legacyIoSeries ?? unavailableIoSeries("leitura")
+  const ioWritesSeries = data?.ioWritesSeries ?? unavailableIoSeries("gravação")
   const aggregates = data?.queryAggregates
   const active = data?.activeQueries
   return (
@@ -71,8 +81,8 @@ export function PerformanceView({ onExplain }: { onExplain: ExplainAction }) {
       {data ? <>
         <div className="grid min-w-0 gap-4 xl:grid-cols-4">
           <HistorySeriesCard title="Atividade WAL" block={data.walSeries} unit={data.walSeries.unit || "bytes/coleta"} topicId="wal-per-collection" onExplain={onExplain} />
-          <HistorySeriesCard title="Leituras (entrada)" block={data.ioReadsSeries} unit={data.ioReadsSeries.unit || "operações/coleta"} topicId="io-reads-per-collection" onExplain={onExplain} />
-          <HistorySeriesCard title="Gravações (saída)" block={data.ioWritesSeries} unit={data.ioWritesSeries.unit || "operações/coleta"} topicId="io-writes-per-collection" onExplain={onExplain} />
+          <HistorySeriesCard title="Leituras (entrada)" block={ioReadsSeries} unit={ioReadsSeries.unit || "operações/coleta"} topicId="io-reads-per-collection" onExplain={onExplain} />
+          <HistorySeriesCard title="Gravações (saída)" block={ioWritesSeries} unit={ioWritesSeries.unit || "operações/coleta"} topicId="io-writes-per-collection" onExplain={onExplain} />
           <HistorySeriesCard title="Tempo da coleta" block={data.collectionDurationSeries} unit="ms" topicId="collection-duration" onExplain={onExplain} />
         </div>
         <div className="grid min-w-0 gap-4 xl:grid-cols-2">

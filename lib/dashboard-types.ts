@@ -250,8 +250,10 @@ export interface Performance {
   activeQueries: DataBlock<Paginated<SessionRow>>;
   queryAggregates: DataBlock<Paginated<QueryAggregate>>;
   walSeries: DataBlock<TimePoint[]>;
-  ioReadsSeries: DataBlock<TimePoint[]>;
-  ioWritesSeries: DataBlock<TimePoint[]>;
+  ioReadsSeries?: DataBlock<TimePoint[]>;
+  ioWritesSeries?: DataBlock<TimePoint[]>;
+  /** Legacy IPC payload while an older Electron process is still running. */
+  ioSeries?: DataBlock<TimePoint[]>;
   collectionDurationSeries: DataBlock<TimePoint[]>;
 }
 

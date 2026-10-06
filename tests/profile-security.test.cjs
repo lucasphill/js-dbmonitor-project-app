@@ -43,3 +43,26 @@ for (const mode of ['rds_iam','rds_iam_ssm']) test(`${mode} token used by a conn
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+
+test('imported reusable profile never persists raw command or rejected secrets',()=>{
+ const {parseSsmCommand}=require('../electron/ssm-command-import.cjs');
+ const {validateProfileDraft}=require('../electron/profile-validation.cjs');
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'dbmonitor-import-secret-'));
+ const storage=openStorage(dir);
+ const command='aws ssm start-session --document-name AWS-StartPortForwardingSessionToRemoteHost --region sa-east-1 --target i-0123456789abcdef0 --parameters host=test.abc.sa-east-1.rds.amazonaws.com,portNumber=5432';
+ const secret='SECRET_IMPORT_SENTINEL';
+ try{
+   const result=parseSsmCommand(command);
+   const draft=validateProfileDraft({...result.patch,label:'Imported',database:'postgres',dbUser:'observer',authMode:'rds_iam_ssm',tlsCaMode:'bundled'});
+   const profile=storage.createProfile(draft);
+   assert.equal(profile.ssmLocalPort,null);
+   assert.throws(()=>parseSsmCommand(command+' --secret-access-key '+secret), e=>!e.message.includes(secret));
+   assert.doesNotMatch(JSON.stringify(storage.listProfiles()),/aws ssm start-session|SECRET_IMPORT_SENTINEL/);
+   storage.close();
+   for(const suffix of ['', '-wal', '-shm']){
+     const file=path.join(dir,FILE_NAME+suffix);
+     if(fs.existsSync(file)){const bytes=fs.readFileSync(file);assert.equal(bytes.includes(Buffer.from(command)),false);assert.equal(bytes.includes(Buffer.from(secret)),false);}
+   }
+ }finally{try{storage.close();}catch{}fs.rmSync(dir,{recursive:true,force:true});}
+});

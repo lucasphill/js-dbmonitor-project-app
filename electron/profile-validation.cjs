@@ -36,6 +36,47 @@ function validHost(value) {
   return host;
 }
 
+
+function validPort(value, field) {
+  if (!Number.isInteger(value) || value < 1 || value > 65535) throw new ProfileInputError(field + ' inválida');
+  return value;
+}
+function validRegion(value) {
+  value = requiredText(value, 'Região AWS', 32);
+  if (!REGIONS.test(value)) throw new ProfileInputError('Região AWS inválida');
+  return value;
+}
+function validAwsProfile(value) {
+  value = requiredText(value, 'Perfil AWS', 128);
+  if (!AWS_PROFILE.test(value)) throw new ProfileInputError('Perfil AWS inválido');
+  return value;
+}
+function validSsmTarget(value) {
+  value = requiredText(value, 'Instância SSM', 19);
+  if (!/^i-(?:[0-9a-f]{8}|[0-9a-f]{17})$/.test(value)) throw new ProfileInputError('Instância SSM inválida');
+  return value;
+}
+function validRdsHost(value, region) {
+  const host = validHost(value);
+  if (!/^.+\.[a-z]{2}(?:-[a-z]+)+-\d+\.rds\.amazonaws\.com(?:\.cn)?$/.test(host)) throw new ProfileInputError('Use o endpoint original do RDS na região informada');
+  if (region !== undefined) {
+    const suffix = '.' + region + '.rds.amazonaws.com';
+    if (!(host.endsWith(suffix) || host.endsWith(suffix + '.cn'))) throw new ProfileInputError('Use o endpoint original do RDS na região informada');
+  }
+  return host;
+}
+function validateSsmImportPatch(input) {
+  if (!plainObject(input)) throw new ProfileInputError('Importação inválida');
+  const validators = {host:validRdsHost,port:(v)=>validPort(v,'Porta'),awsRegion:validRegion,awsProfile:validAwsProfile,ssmTarget:validSsmTarget,ssmLocalPort:(v)=>validPort(v,'Porta local')};
+  const result = {};
+  for (const field of Object.keys(input)) {
+    if (!Object.hasOwn(validators, field)) throw new ProfileInputError('Campo de importação inválido');
+    result[field] = validators[field](input[field]);
+  }
+  if (Object.hasOwn(result,'host') && Object.hasOwn(result,'awsRegion')) validRdsHost(result.host,result.awsRegion);
+  return result;
+}
+
 function validateProfileDraft(input, { allowLegacy = false } = {}) {
   if (!plainObject(input)) throw new ProfileInputError("Perfil inválido");
   for (const field of Object.keys(input)) {
@@ -44,7 +85,7 @@ function validateProfileDraft(input, { allowLegacy = false } = {}) {
   const label = requiredText(input.label, "Nome", 80);
   const host = validHost(input.host);
   const port = input.port;
-  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new ProfileInputError("Porta inválida");
+  validPort(port, "Porta");
   const database = requiredText(input.database, "Banco", 63);
   const dbUser = requiredText(input.dbUser, "Usuário PostgreSQL", 63);
   const authMode = input.authMode;
@@ -56,18 +97,11 @@ function validateProfileDraft(input, { allowLegacy = false } = {}) {
   let tlsCaMode = null;
   let tlsCaPath = null;
   if (isRdsIamProfile({ authMode })) {
-    awsRegion = requiredText(input.awsRegion, "Região AWS", 32);
-    if (!REGIONS.test(awsRegion)) throw new ProfileInputError("Região AWS inválida");
-    const suffix = `.${awsRegion}.rds.amazonaws.com`;
-    const chinaSuffix = `${suffix}.cn`;
-    if (!(host.endsWith(suffix) || host.endsWith(chinaSuffix)) ||
-        host.length <= (host.endsWith(chinaSuffix) ? chinaSuffix.length : suffix.length)) {
-      throw new ProfileInputError("Use o endpoint original do RDS na região informada");
-    }
+    awsRegion = validRegion(input.awsRegion);
+    validRdsHost(host, awsRegion);
     if (input.awsProfile === "") throw new ProfileInputError("Informe o nome do perfil AWS selecionado");
     if (input.awsProfile != null) {
-      awsProfile = requiredText(input.awsProfile, "Perfil AWS", 128);
-      if (!AWS_PROFILE.test(awsProfile)) throw new ProfileInputError("Perfil AWS inválido");
+      awsProfile = validAwsProfile(input.awsProfile);
     }
     tlsCaMode = input.tlsCaMode == null ? "bundled" : input.tlsCaMode;
     if (!["bundled", "custom"].includes(tlsCaMode)) throw new ProfileInputError("Configuração TLS inválida");
@@ -85,12 +119,9 @@ function validateProfileDraft(input, { allowLegacy = false } = {}) {
   let ssmTarget = null;
   let ssmLocalPort = null;
   if (authMode === "rds_iam_ssm") {
-    ssmTarget = requiredText(input.ssmTarget, "Instância SSM", 19);
-    if (!/^i-(?:[0-9a-f]{8}|[0-9a-f]{17})$/.test(ssmTarget)) throw new ProfileInputError("Instância SSM inválida");
+    ssmTarget = validSsmTarget(input.ssmTarget);
     ssmLocalPort = input.ssmLocalPort == null ? null : input.ssmLocalPort;
-    if (ssmLocalPort !== null && (!Number.isInteger(ssmLocalPort) || ssmLocalPort < 1 || ssmLocalPort > 65535)) {
-      throw new ProfileInputError("Porta local inválida");
-    }
+    if (ssmLocalPort !== null) validPort(ssmLocalPort, "Porta local");
   } else if (input.ssmTarget != null || input.ssmLocalPort != null) {
     throw new ProfileInputError("Campos SSM não pertencem a este modo de autenticação");
   }
@@ -125,5 +156,5 @@ function profileIdentityChanged(current, next) {
 function profileTransportChanged(current, next) {
   return profileIdentityChanged(current, next) || ["ssmTarget", "ssmLocalPort"].some((key) => Object.hasOwn(next, key) && (next[key] ?? null) !== (current[key] ?? null));
 }
-module.exports = { ProfileInputError, validateProfileDraft, validateProfileChanges, validateTransientPassword,
+module.exports = { validateSsmImportPatch, ProfileInputError, validateProfileDraft, validateProfileChanges, validateTransientPassword,
   isRdsIamProfile, profileIdentityChanged, profileTransportChanged };

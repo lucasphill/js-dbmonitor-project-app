@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld("bdash", {
   getStartupState: () => invoke("startup:get-state"),
   setStartupEnabled: (enabled) => invoke("startup:set-enabled", enabled),
   listConnectionProfiles: (includeArchived = false) => invoke("profiles:list", includeArchived),
+  importSsmConnectionCommand: (text) => ipcRenderer.invoke("profiles:import-ssm-command", text),
   createConnectionProfile: (draft) => invoke("profiles:create", draft),
   testConnectionProfile: (draftOrId, transientPassword, options) => invoke("profiles:test", draftOrId, transientPassword, options),
   getConnectionStatus: () => invoke('profiles:connection-status'),

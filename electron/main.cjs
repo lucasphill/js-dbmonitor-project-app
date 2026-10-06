@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const { pathToFileURL } = require("node:url");
 const { app, BrowserWindow, dialog, ipcMain, Menu, net, protocol } = require("electron");
 const db = require("./db.cjs");
+const { parseSsmCommand } = require("./ssm-command-import.cjs");
 const { openStorage } = require("./storage.cjs");
 const { createCollector } = require("./collector.cjs");
 const { createProfileController } = require("./connection-profiles.cjs");
@@ -18,7 +19,7 @@ const { createSessionHistory } = require("./sessions-history.cjs");
 const { createStartupService, createWindowActivationCoordinator } = require("./startup.cjs");
 const { IpcInputError, wrapHandler, period, page, profileId, sourceContext, confirmation, sessionFilters,
   sessionActionIdentity, databaseInventoryFilters, logFilters, preferences, exportRequest, startupEnabled,
-  connectionRequestId, connectionTestOptions } = require("./ipc.cjs");
+  connectionRequestId, connectionTestOptions, ssmCommandText } = require("./ipc.cjs");
 
 const isDev = !app.isPackaged && process.argv.includes("--dev");
 const isPrimaryInstance = app.requestSingleInstanceLock();
@@ -157,6 +158,7 @@ app.whenReady().then(async () => {
   register("startup:set-enabled", (enabled) => startupService.setEnabled(startupEnabled(enabled)));
 
   register("profiles:list", (includeArchived = false) => controller.list(includeArchived === true));
+  register("profiles:import-ssm-command", (text) => parseSsmCommand(ssmCommandText(text)));
   register("profiles:create", (draft) => controller.create(draft));
   register("profiles:test", (draftOrId, transientPassword, options) => controller.test(
     typeof draftOrId === "number" ? profileId(draftOrId) : draftOrId, transientPassword, connectionTestOptions(options)));

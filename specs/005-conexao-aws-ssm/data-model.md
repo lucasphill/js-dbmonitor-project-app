@@ -35,3 +35,28 @@ disconnected/failed → connecting por activate/reconnect; connecting → connec
 ## ConnectionTest
 
 Preservar success/failed e campos atuais; acrescentar requestId, code opcional, canceled opcional e etapas prerequisites/tunnel. Cancelamento = failed + CONNECTION_CANCELED + canceled=true. Resultado não altera runtime ativo. Token existe apenas ao autenticar nova conexão física.
+
+## Revisão: importação transitória de comando
+
+Schema persistente continua 4; não acrescentar commandText às instances, ProfileDraft ou ConnectionProfile.
+
+### SsmCommandImportResult (público, transitório)
+
+- `patch`: objeto parcial com somente `host`, `port`, `awsRegion`, `awsProfile`, `ssmTarget`, `ssmLocalPort` presentes no comando; host/região/profile/target strings validadas, portas inteiros 1–65535. Ausência não vira null/default.
+- `presentFields`: lista sem duplicação dos nomes efetivamente incluídos no patch.
+- `missingFields`: campos de transporte obrigatórios ausentes entre host/awsRegion/ssmTarget; formulário completa também label/database/dbUser conforme estado existente.
+- Não conter comando, tokens intermediários, PID, SessionId, credenciais ou configuração TLS nova.
+
+### ImportPreview (somente formulário)
+
+Texto bruto limitado, revisão local, ID do pedido, snapshot/revisão do draft, resultado validado, draft candidato e lista de substituições (nome fixo do campo, valor atual/novo). Informações ausentes continuam preservadas; defaults do formulário novo não se confundem com valores extraídos.
+
+Estados: idle → parsing → preview → applied/idle; parsing → error; mudança de texto/draft/perfil/modo, fechamento ou descarte → idle e invalidação dos pedidos anteriores. Parsing e preview nunca alteram o perfil ativo. Applied altera apenas draft, limpa texto/prévia e invalida teste anterior. Salvar/testar executam os fluxos existentes.
+
+### Validação
+
+Formato proibido/valor fornecido inválido: falha segura sem patch parcial. Campo não fornecido: diagnóstico de complementação. Campo presente válido individualmente mas incoerente com valor existente preservado: aplicar recusado com erro de campo e draft intacto; corrigir formulário/importação. Mudança histórica continua calculada no salvar existente, não no parser.
+
+### SsmCommandImportResponse
+
+Envelope discriminado `{ok:true,data:SsmCommandImportResult}` ou `{ok:false,error:{code,message}}`. Preload retorna o envelope IPC sanitizado sem lançar Error personalizado pela contextBridge; UI consome o code estruturado e mostra somente mensagem local allowlisted. Nenhum texto bruto aparece na resposta.

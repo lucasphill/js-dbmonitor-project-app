@@ -23,3 +23,10 @@ test('transport changes preserve historical identity',()=> {
   assert.equal(v.profileIdentityChanged(current,{...current,dbUser:'other'}),true);
   assert.equal(v.isRdsIamProfile(current),true);
 });
+test('partial SSM import validates supplied scalars without inventing defaults',()=> {
+ assert.deepEqual(v.validateSsmImportPatch({}),{});
+ assert.deepEqual(v.validateSsmImportPatch({awsRegion:'sa-east-1'}),{awsRegion:'sa-east-1'});
+ assert.deepEqual(v.validateSsmImportPatch({host:draft.host,ssmTarget:draft.ssmTarget,port:5432}),{host:draft.host,ssmTarget:draft.ssmTarget,port:5432});
+ for(const patch of [{host:'localhost'},{host:draft.host,awsRegion:'us-east-1'},{awsProfile:null},{ssmLocalPort:null},{port:'5432'},{password:'SECRET_SENTINEL'},{authMode:'rds_iam_ssm'}]) assert.throws(()=>v.validateSsmImportPatch(patch),e=>e.code==='INVALID_INPUT'&&!e.message.includes('SECRET_SENTINEL'));
+ assert.throws(()=>v.validateProfileDraft({host:draft.host,awsRegion:draft.awsRegion,ssmTarget:draft.ssmTarget}));
+});

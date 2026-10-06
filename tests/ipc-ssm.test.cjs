@@ -50,3 +50,51 @@ test('preload exposes only named SSM methods and unsubscribes listeners without 
   assert.equal(payload, state);
   unsubscribe(); assert.equal(renderer.listenerCount('profiles:connection-state'), 0);
 });
+
+
+test('SSM command import IPC bounds UTF-8 input before parsing and sanitizes errors', () => {
+  assert.equal(ipc.ssmCommandText('aws ssm start-session'), 'aws ssm start-session');
+  for (const input of [null, {}, '', 'a'.repeat(16385), 'é'.repeat(8193), 'aws\0']) {
+    assert.throws(() => ipc.ssmCommandText(input), { code: 'SSM_IMPORT_INVALID_INPUT' });
+  }
+  assert.equal(Buffer.byteLength(ipc.ssmCommandText('é'.repeat(8192))), 16384);
+  for (const code of ['SSM_IMPORT_INVALID_INPUT', 'SSM_IMPORT_INVALID_SYNTAX',
+    'SSM_IMPORT_UNSUPPORTED_COMMAND', 'SSM_IMPORT_UNSAFE_CONTENT']) {
+    const error = ipc.safeError({ code, message: 'SECRET_IMPORT_TEXT' });
+    assert.equal(error.code, code); assert.doesNotMatch(JSON.stringify(error), /SECRET_IMPORT_TEXT/);
+  }
+});
+
+test('import preload exposes a named method that does not dispatch activation', async () => {
+  let api; const calls=[];
+  vm.runInNewContext(fs.readFileSync(require.resolve('../electron/preload.cjs'), 'utf8'), {
+    require: () => ({ contextBridge: { exposeInMainWorld: (_name,value) => { api=value; } },
+      ipcRenderer: { invoke: async (...args) => { calls.push(args); return {ok:true,data:{patch:{},presentFields:[],missingFields:[]}}; } } }),
+  });
+  await api.importSsmConnectionCommand('aws ssm start-session');
+  assert.deepEqual(calls,[['profiles:import-ssm-command','aws ssm start-session']]);
+  assert.equal(api.exec,undefined);
+});
+
+
+test('import IPC refuses unauthorized frames before parsing and leaves active state intact', async () => {
+  const {parseSsmCommand}=require('../electron/ssm-command-import.cjs');
+  let called=0;const active={profileId:1,generation:1,state:'connected'};
+  const handler=ipc.wrapHandler(false,text=>{called++;return parseSsmCommand(ipc.ssmCommandText(text));});
+  const unauthorized={url:'https://evil.invalid/'};
+  assert.equal((await handler({senderFrame:unauthorized,sender:{mainFrame:unauthorized}},'SECRET')).error.code,'FORBIDDEN');
+  assert.equal(called,0);
+  const frame={url:'bdash://app/'};
+  const result=await handler({senderFrame:frame,sender:{mainFrame:frame}},'aws ssm start-session --document-name AWS-StartPortForwardingSessionToRemoteHost');
+  assert.equal(result.ok,true);assert.deepEqual(Object.keys(result.data).sort(),['missingFields','patch','presentFields']);
+  assert.deepEqual(active,{profileId:1,generation:1,state:'connected'});
+});
+
+
+test('import preload preserves structured error codes rather than rejecting across contextBridge',async()=>{
+ let api;const reply={ok:false,error:{code:'SSM_IMPORT_UNSAFE_CONTENT',message:'Safe guidance'}};
+ vm.runInNewContext(fs.readFileSync(require.resolve('../electron/preload.cjs'),'utf8'),{
+  require:()=>({contextBridge:{exposeInMainWorld:(_name,value)=>{api=value;}},ipcRenderer:{invoke:async()=>reply}}),
+ });
+ assert.equal(await api.importSsmConnectionCommand('command'),reply);
+});

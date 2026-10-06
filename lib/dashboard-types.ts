@@ -12,6 +12,15 @@ export interface ConnectionProfile {
   archivedAt: ISODate | null; createdAt: ISODate; updatedAt: ISODate;
 }
 export type ProfileDraft = Omit<ConnectionProfile, "id" | "archivedAt" | "createdAt" | "updatedAt"> & { tlsCaPath?: string | null };
+export type SsmImportField = "host" | "port" | "awsRegion" | "awsProfile" | "ssmTarget" | "ssmLocalPort";
+export interface SsmCommandImportResult {
+  patch: Partial<Pick<ProfileDraft, SsmImportField>>;
+  presentFields: SsmImportField[];
+  missingFields: ("host" | "awsRegion" | "ssmTarget")[];
+}
+export type SsmCommandImportResponse =
+  | { ok: true; data: SsmCommandImportResult }
+  | { ok: false; error: { code: string; message: string } };
 export interface ConnectionRuntime {
   sourceContext: SourceContext; revision: number;
   state: "disconnected" | "connecting" | "connected" | "failed";
@@ -346,6 +355,7 @@ export interface ExportResult {
 
 /** Public renderer contract. The main process validates every input at runtime. */
 export interface DashboardApi {
+  importSsmConnectionCommand(text: string): Promise<SsmCommandImportResponse>;
   getStartupState(): Promise<StartupState>;
   setStartupEnabled(enabled: boolean): Promise<StartupState>;
   listConnectionProfiles(includeArchived?: boolean): Promise<{ profiles: ConnectionProfile[]; activeProfileId: ProfileId; generation: number }>;

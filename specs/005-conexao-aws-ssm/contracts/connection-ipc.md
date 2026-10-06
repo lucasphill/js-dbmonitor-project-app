@@ -1,6 +1,6 @@
 # Contract: Connection profiles IPC
 
-Contrato proposto, ainda não implementado. Preservar window.bdash, envelope `{ok:true,data}` / `{ok:false,error:{code,message}}`, validação de mainFrame e origem. Sem execução/SQL/filesystem/AWS genéricos.
+Contrato da base SSM/IAM entregue na v0.1.7; revisão de importação implementada localmente. Preservar window.bdash, envelope `{ok:true,data}` / `{ok:false,error:{code,message}}`, validação de mainFrame e origem. Sem execução/SQL/filesystem/AWS genéricos.
 
 ## Operações existentes
 
@@ -32,3 +32,7 @@ Novos códigos: SSM_PLUGIN_NOT_FOUND, SSM_TARGET_UNAVAILABLE, SSM_ACCESS_DENIED,
 ## Contrato UI
 
 Modo AWS via SSM + IAM mostra campos RDS/AWS/CA, instância e porta automática/manual, sem senha/token. Teste e abertura têm Cancelar; origem SSM tem estado, Reconectar e Desconectar. Porta efetiva é diagnóstico e nunca substitui identidade remota nas métricas. Disconnect/drop mantém últimos dados stale; refresh não reabre túnel.
+
+## Revisão: importação offline
+
+Adicionar operação estrita `profiles:import-ssm-command` / `importSsmConnectionCommand(text)` com retorno SsmCommandImportResult. Sem mudança às assinaturas atuais de create/update/test ou ao runtime. Gramática, erros e fluxo UI definidos em [ssm-command-import.md](ssm-command-import.md). Novos códigos de importação devem entrar na allowlist IPC sem confundi-los com códigos de conexão.

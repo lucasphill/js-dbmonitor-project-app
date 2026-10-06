@@ -52,3 +52,21 @@ for(const mode of ['rds_iam','rds_iam_ssm']) test(`${mode} overview and CSV expo
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+
+test('imported transport edits preserve history while imported endpoint needs new origin',()=>{
+ const {parseSsmCommand}=require('../electron/ssm-command-import.cjs');
+ const {validateProfileDraft}=require('../electron/profile-validation.cjs');
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'dbmonitor-import-identity-'));const storage=openStorage(dir);
+ const base='aws ssm start-session --document-name AWS-StartPortForwardingSessionToRemoteHost';
+ try{
+   const patch=parseSsmCommand(base+' --region sa-east-1 --target i-0123456789abcdef0 --parameters host=test.abc.sa-east-1.rds.amazonaws.com,portNumber=5432').patch;
+   const manual={host:'test.abc.sa-east-1.rds.amazonaws.com',port:5432,awsRegion:'sa-east-1',ssmTarget:'i-0123456789abcdef0',label:'Test',database:'postgres',dbUser:'observer',authMode:'rds_iam_ssm',tlsCaMode:'bundled',awsProfile:'team',ssmLocalPort:15432};
+   const draft=validateProfileDraft({...manual,...patch});assert.deepEqual(draft,validateProfileDraft(manual));
+   const p=storage.createProfile(draft);const at='2026-10-06T15:00:00Z';storage.recordCycle(p.id,snapshot('postgres',9,at));
+   const transport=parseSsmCommand(base+' --target i-1234abcd --parameters localPortNumber=15433').patch;
+   const changed=storage.updateProfile(p.id,transport).profile;assert.equal(changed.id,p.id);assert.equal(changed.awsProfile,'team');assert.equal(storage.getLatestCycle(p.id).metrics.connections,9);
+   const identity=parseSsmCommand(base+' --parameters host=other.abc.sa-east-1.rds.amazonaws.com').patch;
+   assert.throws(()=>storage.updateProfile(p.id,identity));const next=storage.updateProfile(p.id,identity,true);assert.equal(next.archivedProfileId,p.id);assert.notEqual(next.profile.id,p.id);assert.equal(storage.getLatestCycle(next.profile.id),null);
+ }finally{storage.close();fs.rmSync(dir,{recursive:true,force:true});}
+});

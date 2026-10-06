@@ -200,11 +200,22 @@ function exportRequest(value) {
   };
 }
 
+function ssmCommandText(value) {
+  if (typeof value !== 'string' || !value.trim() || Buffer.byteLength(value, 'utf8') > 16384 || /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(value)) {
+    throw Object.assign(new Error('Comando SSM inválido. Use até 16 KiB de texto.'), {code:'SSM_IMPORT_INVALID_INPUT'});
+  }
+  return value;
+}
+
 function safeError(error) {
   if (error instanceof IpcInputError) return { code: error.code, message: error.message };
   if (error instanceof ProfileInputError) return { code: error.code, message: error.message };
   const code = error?.code;
   const known = {
+    SSM_IMPORT_INVALID_INPUT: "Comando SSM inválido. Use até 16 KiB de texto.",
+    SSM_IMPORT_INVALID_SYNTAX: "Revise as aspas, os parâmetros e argumentos repetidos do comando SSM.",
+    SSM_IMPORT_UNSUPPORTED_COMMAND: "Use aws ssm start-session com o documento de encaminhamento remoto e as opções suportadas.",
+    SSM_IMPORT_UNSAFE_CONTENT: "Use um único comando SSM com valores literais, sem variáveis, credenciais ou outros comandos.",
     INVALID_INPUT: "Dados de conexão inválidos",
     PROFILE_NOT_FOUND: "Perfil não encontrado",
     PROFILE_ARCHIVED: "Este perfil foi arquivado",
@@ -246,5 +257,5 @@ function wrapHandler(dev, handler) {
 }
 
 module.exports = { IpcInputError, assertOrigin, period, page, profileId, sourceContext, confirmation,
-  connectionRequestId, connectionTestOptions,
+  connectionRequestId, connectionTestOptions, ssmCommandText,
   startupEnabled, sessionIdentity, sessionActionIdentity, sessionFilters, databaseInventoryFilters, logFilters, preferences, exportRequest, safeError, wrapHandler };

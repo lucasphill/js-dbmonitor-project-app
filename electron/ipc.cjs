@@ -56,6 +56,17 @@ function sourceContext(value) {
     generation: positiveInteger(value.generation, "Geração", 2_147_483_647) };
 }
 
+function connectionRequestId(value) {
+  if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(value)) throw new IpcInputError('Identificador de teste inválido');
+  return value;
+}
+
+function connectionTestOptions(value) {
+  if (value == null) return {};
+  if (typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => key !== 'requestId')) throw new IpcInputError('Opções de teste inválidas');
+  return { requestId: connectionRequestId(value.requestId) };
+}
+
 function confirmation(value) {
   if (value !== true) throw new IpcInputError("Confirmação necessária");
   return true;
@@ -201,6 +212,13 @@ function safeError(error) {
     AWS_CLI_NOT_FOUND: "AWS CLI não encontrada. Instale ou ajuste o PATH e reinicie o aplicativo.",
     AWS_IDENTITY_UNAVAILABLE: "Identidade AWS indisponível. Verifique o perfil da CLI e, se usar SSO, execute aws sso login no terminal.",
     TOKEN_GENERATION_FAILED: "Não foi possível gerar a autorização IAM. Confira endpoint, região, usuário e identidade AWS.",
+    SSM_PLUGIN_NOT_FOUND: 'Session Manager plugin não encontrado. Instale-o, confira o PATH e reinicie o aplicativo.',
+    SSM_TARGET_UNAVAILABLE: 'Instância SSM indisponível. Confira identificador, região e agente da instância.',
+    SSM_ACCESS_DENIED: 'A identidade AWS não tem permissão para esta sessão SSM. Confira instância e documento autorizados.',
+    SSM_SESSION_FAILED: 'Não foi possível abrir o túnel SSM. Confira instância, rede e permissões AWS.',
+    LOCAL_PORT_IN_USE: 'A porta local está ocupada. Escolha outra porta ou use a opção automática.',
+    SSM_TUNNEL_LOST: 'O túnel SSM foi interrompido. Reconecte para retomar a coleta.',
+    CONNECTION_CANCELED: 'Conexão cancelada.',
     NETWORK_UNAVAILABLE: "Não foi possível alcançar o PostgreSQL. Confira rede, VPN, endpoint e porta.",
     TLS_VALIDATION_FAILED: "Falha na validação TLS do RDS. Confira endpoint e certificado CA.",
     DATABASE_AUTH_FAILED: "Autenticação PostgreSQL recusada. Confira usuário e configuração IAM do banco.",
@@ -228,4 +246,5 @@ function wrapHandler(dev, handler) {
 }
 
 module.exports = { IpcInputError, assertOrigin, period, page, profileId, sourceContext, confirmation,
+  connectionRequestId, connectionTestOptions,
   startupEnabled, sessionIdentity, sessionActionIdentity, sessionFilters, databaseInventoryFilters, logFilters, preferences, exportRequest, safeError, wrapHandler };

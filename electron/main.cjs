@@ -6,6 +6,7 @@ const db = require("./db.cjs");
 const { openStorage } = require("./storage.cjs");
 const { createCollector } = require("./collector.cjs");
 const { createProfileController } = require("./connection-profiles.cjs");
+const { isRdsIamProfile } = require('./profile-validation.cjs');
 const { resolveUserDataPath } = require("./user-data.cjs");
 const { buildOverview } = require("./overview.cjs");
 const { buildDatabaseActivity, analyzeDatabases } = require("./analytics.cjs");
@@ -16,7 +17,8 @@ const { buildExecutiveReport } = require("./executive-report.cjs");
 const { createSessionHistory } = require("./sessions-history.cjs");
 const { createStartupService, createWindowActivationCoordinator } = require("./startup.cjs");
 const { IpcInputError, wrapHandler, period, page, profileId, sourceContext, confirmation, sessionFilters,
-  sessionActionIdentity, databaseInventoryFilters, logFilters, preferences, exportRequest, startupEnabled } = require("./ipc.cjs");
+  sessionActionIdentity, databaseInventoryFilters, logFilters, preferences, exportRequest, startupEnabled,
+  connectionRequestId, connectionTestOptions } = require("./ipc.cjs");
 
 const isDev = !app.isPackaged && process.argv.includes("--dev");
 const isPrimaryInstance = app.requestSingleInstanceLock();
@@ -118,16 +120,18 @@ app.whenReady().then(async () => {
   app.setPath("userData", userDataPath);
   if (!isDev) registerStaticProtocol();
   storage = openStorage(app.getPath("userData"));
-  controller = createProfileController({ storage, db, collectorFactory: (profile) => createCollector({
+  controller = createProfileController({ storage, db, onConnectionState: (state) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('profiles:connection-state', state);
+  }, collectorFactory: (profile) => createCollector({
     collectSnapshot: db.collectSnapshot,
     storage,
     profileId: profile.id,
-    ingestLogs: () => profile.authMode === "rds_iam"
+    ingestLogs: () => isRdsIamProfile(profile)
       ? { state: "unavailable", reason: "Logs CSV locais não estão disponíveis no RDS", inserted: 0 }
       : ingestCsvLog(storage, profile.id, storage.getPreferences(profile.id).logSourcePath),
     intervalSeconds: storage.getPreferences(profile.id).collectionIntervalSeconds,
   }) });
-  await controller.start();
+  const initialStart = controller.start();
   const active = () => {
     const state = controller.current();
     return { ...state, sourceContext: { profileId: state.profile.id, generation: state.generation } };
@@ -154,8 +158,13 @@ app.whenReady().then(async () => {
 
   register("profiles:list", (includeArchived = false) => controller.list(includeArchived === true));
   register("profiles:create", (draft) => controller.create(draft));
-  register("profiles:test", (draftOrId, transientPassword) => controller.test(
-    typeof draftOrId === "number" ? profileId(draftOrId) : draftOrId, transientPassword));
+  register("profiles:test", (draftOrId, transientPassword, options) => controller.test(
+    typeof draftOrId === "number" ? profileId(draftOrId) : draftOrId, transientPassword, connectionTestOptions(options)));
+  register('profiles:connection-status', () => controller.getConnectionStatus());
+  register('profiles:disconnect', (context) => controller.disconnect(sourceContext(context)));
+  register('profiles:reconnect', (context) => controller.reconnect(sourceContext(context)));
+  register('profiles:cancel-connect', (context) => controller.cancelConnect(sourceContext(context)));
+  register('profiles:cancel-test', (id) => controller.cancelTest(connectionRequestId(id)));
   register("profiles:update", (id, changes, confirmNewOrigin = false) =>
     controller.update(profileId(id), changes, confirmNewOrigin === true));
   register("profiles:activate", (id) => controller.switchTo(profileId(id)));
@@ -166,7 +175,7 @@ app.whenReady().then(async () => {
   register("dashboard:overview", async (input) => {
     const context = active();
     const queryLatency = await db.getGlobalQueryLatency().catch(() => ({ available: false, value: null }));
-    return withContext(context, buildOverview({ collector: context.collector, storage,
+    return withContext(context, buildOverview({ collector: context.collector, storage, runtime: context.runtime,
       profile: context.profile, period: period(input, { optional: true }), queryLatency }));
   });
   register("dashboard:sessions", async (input) => {
@@ -224,10 +233,10 @@ app.whenReady().then(async () => {
   register("dashboard:logs", (input) => {
     const context = active();
     const filters = logFilters(input);
-    const source = context.profile.authMode === "rds_iam" ? null
+    const source = isRdsIamProfile(context.profile) ? null
       : storage.getPreferences(context.profile.id).logSourcePath;
     if (!source) return withContext(context, { state: "unavailable", source: "PostgreSQL CSV log",
-      reason: context.profile.authMode === "rds_iam" ? "Logs CSV locais não estão disponíveis no RDS" : "Fonte CSV não configurada" });
+      reason: isRdsIamProfile(context.profile) ? "Logs CSV locais não estão disponíveis no RDS" : "Fonte CSV não configurada" });
     const logStatus = context.collector.getLogStatus();
     const data = storage.getLogs(context.profile.id, filters);
     return withContext(context, { state: logStatus.state === "unavailable" ? "stale" : data.total ? "ready" : "empty",
@@ -238,7 +247,7 @@ app.whenReady().then(async () => {
     const context = active();
     const cycles = storage.getCycleDiagnostics(context.profile.id);
     const capabilities = { ...(context.collector.getLastUsable()?.capabilities || {}) };
-    const logSource = context.profile.authMode === "rds_iam" ? null
+    const logSource = isRdsIamProfile(context.profile) ? null
       : storage.getPreferences(context.profile.id).logSourcePath;
     const logStatus = context.collector.getLogStatus();
     capabilities.logs = logSource && ["ready", "partial"].includes(logStatus.state)
@@ -262,14 +271,14 @@ app.whenReady().then(async () => {
   });
   register("dashboard:refresh", async () => {
     const context = active();
-    return withContext(context, await context.collector.refreshNow());
+    return withContext(context, await controller.refreshNow());
   });
   register("dashboard:update-preferences", (input) => {
     const expected = sourceContext(input?.sourceContext);
     return controller.guardAdmin(expected, () => {
       const context = active();
       const next = preferences(input);
-      if (context.profile.authMode === "rds_iam" && next.logSourcePath) {
+      if (isRdsIamProfile(context.profile) && next.logSourcePath) {
         throw new IpcInputError("Logs CSV locais não estão disponíveis para perfis RDS IAM");
       }
       const updated = storage.updatePreferences(context.profile.id, next);
@@ -367,12 +376,12 @@ app.whenReady().then(async () => {
         if (!observationAt) availability = { state: "unavailable", notes: ["Ainda não há uma observação válida de sessões nesta execução."] };
       } else if (request.dataset === "logs") {
         const filters = request.logFilters || logFilters({ period: request.period });
-        const logSourcePath = context.profile.authMode === "rds_iam" ? null
+        const logSourcePath = isRdsIamProfile(context.profile) ? null
           : storage.getPreferences(context.profile.id).logSourcePath;
         const logState = context.collector.getLogStatus();
         if (!logSourcePath) {
           return withContext(context, { canceled: false, empty: true, rowCount: 0, format: request.format,
-            message: context.profile.authMode === "rds_iam"
+            message: isRdsIamProfile(context.profile)
               ? "Logs CSV locais não estão disponíveis para esta origem RDS."
               : "Nenhuma fonte CSV de logs está configurada." });
         }
@@ -464,6 +473,7 @@ app.whenReady().then(async () => {
     });
   });
   createWindow({ minimized: activation.presentation() === "minimized" });
+  await initialStart;
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });

@@ -56,3 +56,28 @@ test("invalid endpoint cannot become CLI arguments", async () => {
   }), { code: "INVALID_INPUT" });
   assert.equal(invoked, false);
 });
+
+test('executable follows platform and respects remaining connection budget', async () => {
+  let seen;
+  await execAwsToken(profile, { platform: 'linux', deadline: Date.now() + 500,
+    execFileImpl: (file, args, options, callback) => { seen = { file, options }; callback(null, 'temporary-token', ''); } });
+  assert.equal(seen.file, 'aws'); assert.ok(seen.options.timeout <= 500);
+});
+test('already aborted token request never invokes CLI', async () => {
+  const controller = new AbortController(); controller.abort(); let called = false;
+  await assert.rejects(execAwsToken(profile, { signal: controller.signal,
+    execFileImpl: () => { called = true; } }), { code: 'CONNECTION_CANCELED' });
+  assert.equal(called, false);
+});
+test('late token success cannot override deadline or cancellation', async () => {
+  let callback; let kills = 0;
+  const pending = execAwsToken(profile, { deadline: Date.now() + 20,
+    execFileImpl: (_file, _args, _options, done) => { callback = done; return { kill() { kills++; } }; } });
+  await assert.rejects(pending, { code: 'CONNECTION_TIMEOUT' }); callback(null, 'late-token', '');
+  assert.equal(kills, 1);
+  const controller = new AbortController();
+  const canceled = execAwsToken(profile, { signal: controller.signal,
+    execFileImpl: (_file, _args, _options, done) => { callback = done; return { kill() { kills++; } }; } });
+  controller.abort(); callback(null, 'late-token', '');
+  await assert.rejects(canceled, { code: 'CONNECTION_CANCELED' }); assert.equal(kills, 2);
+});

@@ -1,4 +1,5 @@
 const { downsample } = require("./downsample.cjs");
+const { isRdsIamProfile } = require('./profile-validation.cjs');
 
 function block(state, source, updatedAt, data, unit, reason) {
   const result = { state, source };
@@ -40,13 +41,13 @@ function transactionSeries(databaseRows, maxGapMs = 45000) {
   return points;
 }
 
-function buildOverview({ collector, storage, profile, period, queryLatency }) {
+function buildOverview({ collector, storage, profile, period, queryLatency, runtime }) {
   const profileId = profile.id;
   const latestCycle = storage.getLatestCycle(profileId);
   const usable = collector.getLastUsable?.() || storage.getLatestSuccessfulCycle?.(profileId) || null;
   const updatedAt = usable?.collectedAt || usable?.finishedAt || null;
   const ageMs = updatedAt ? Date.now() - Date.parse(updatedAt) : Infinity;
-  const stale = latestCycle?.result === "failed" || ageMs > collector.getStatus().intervalSeconds * 2000;
+  const stale = (runtime && runtime.state !== 'connected') || latestCycle?.result === "failed" || ageMs > collector.getStatus().intervalSeconds * 2000;
   const state = !usable ? "unavailable" : stale ? "stale" : usable.result === "partial" ? "partial" : "ready";
   const reason = !usable ? "Ainda não há coleta válida" : stale ? "Última coleta válida é anterior ao estado atual" : usable.error || undefined;
   const databases = usable?.databases || storage.getLatestDatabases?.(profileId, usable?.id) || [];
@@ -69,7 +70,7 @@ function buildOverview({ collector, storage, profile, period, queryLatency }) {
     statements: { available: false, reason: "pg_stat_statements indisponível" },
     logs: { available: false, reason: "Fonte de logs não configurada" },
   }) };
-  const logSource = profile.authMode === "rds_iam" ? null : storage.getPreferences?.(profileId).logSourcePath;
+  const logSource = isRdsIamProfile(profile) ? null : storage.getPreferences?.(profileId).logSourcePath;
   const logStatus = collector.getLogStatus?.();
   capabilities.logs = logSource && (logStatus?.state === "ready" || logStatus?.state === "partial")
     ? { available: true }

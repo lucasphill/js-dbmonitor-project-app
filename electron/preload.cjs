@@ -15,7 +15,17 @@ contextBridge.exposeInMainWorld("bdash", {
   setStartupEnabled: (enabled) => invoke("startup:set-enabled", enabled),
   listConnectionProfiles: (includeArchived = false) => invoke("profiles:list", includeArchived),
   createConnectionProfile: (draft) => invoke("profiles:create", draft),
-  testConnectionProfile: (draftOrId, transientPassword) => invoke("profiles:test", draftOrId, transientPassword),
+  testConnectionProfile: (draftOrId, transientPassword, options) => invoke("profiles:test", draftOrId, transientPassword, options),
+  getConnectionStatus: () => invoke('profiles:connection-status'),
+  disconnectConnectionProfile: (context) => invoke('profiles:disconnect', context),
+  reconnectConnectionProfile: (context) => invoke('profiles:reconnect', context),
+  cancelConnectionTest: (requestId) => invoke('profiles:cancel-test', requestId),
+  cancelConnectionAttempt: (context) => invoke('profiles:cancel-connect', context),
+  onConnectionState: (listener) => {
+    const handler = (_event, state) => listener(state);
+    ipcRenderer.on('profiles:connection-state', handler);
+    return () => ipcRenderer.removeListener('profiles:connection-state', handler);
+  },
   updateConnectionProfile: (id, changes, confirmNewOrigin = false) =>
     invoke("profiles:update", id, changes, confirmNewOrigin),
   activateConnectionProfile: (id) => invoke("profiles:activate", id),

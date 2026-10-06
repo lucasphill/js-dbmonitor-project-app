@@ -1,12 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Overview, Period, SourceContext } from "@/lib/dashboard-types";
+import type { ConnectionRuntime, Overview, Period, SourceContext } from "@/lib/dashboard-types";
+import { overviewForRuntime } from "@/lib/connection-runtime";
 
 export function useDashboard(period?: Period, source?: SourceContext | null, enabled = true) {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const runtimeRef = useRef<ConnectionRuntime | null>(null);
+  const [runtime, setRuntime] = useState<ConnectionRuntime | null>(null);
   const requestId = useRef(0);
   const sourceRef = useRef(source);
   sourceRef.current = source;
@@ -32,19 +35,41 @@ export function useDashboard(period?: Period, source?: SourceContext | null, ena
       setOverview(next);
       setError(null);
     } catch (cause) {
-      if (currentRequest === requestId.current) setError(cause instanceof Error ? cause.message : "Falha ao carregar o dashboard");
+      if (currentRequest === requestId.current && (!requestedSource || (sourceRef.current?.profileId === requestedSource.profileId && sourceRef.current?.generation === requestedSource.generation))) setError(cause instanceof Error ? cause.message : "Falha ao carregar o dashboard");
     } finally {
       if (currentRequest === requestId.current) setLoading(false);
     }
   }, [windowMs, source?.profileId, source?.generation, enabled]);
 
+  useEffect(() => {
+    runtimeRef.current = null; setRuntime(null);
+    if (!window.bdash) return;
+    let mounted = true;
+    const accept = (next: ConnectionRuntime) => {
+      const current = sourceRef.current;
+      if (!mounted || !current || next.sourceContext.profileId !== current.profileId || next.sourceContext.generation !== current.generation) return;
+      if (runtimeRef.current && next.revision <= runtimeRef.current.revision) return;
+      runtimeRef.current = next; setRuntime(next);
+    };
+    const unsubscribe = window.bdash.onConnectionState(accept);
+    void window.bdash.getConnectionStatus().then(accept).catch(() => {});
+    return () => { mounted = false; unsubscribe(); };
+  }, [source?.profileId, source?.generation]);
+
   const refresh = useCallback(async () => {
     if (!window.bdash) return;
+    if (runtimeRef.current && runtimeRef.current.state !== "connected") {
+      setError(runtimeRef.current.state === "connecting" ? "Aguarde a conexão terminar." : "Origem desconectada. Use Reconectar para retomar a coleta.");
+      await load();
+      return;
+    }
+    const requestedSource = sourceRef.current;
     try {
       await window.bdash.refreshNow();
+      if (requestedSource && (sourceRef.current?.profileId !== requestedSource.profileId || sourceRef.current?.generation !== requestedSource.generation)) return;
       await load();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Falha ao atualizar o dashboard");
+      if (!requestedSource || (sourceRef.current?.profileId === requestedSource.profileId && sourceRef.current?.generation === requestedSource.generation)) setError(cause instanceof Error ? cause.message : "Falha ao atualizar o dashboard");
     }
   }, [load]);
 
@@ -56,5 +81,5 @@ export function useDashboard(period?: Period, source?: SourceContext | null, ena
   }, [load, enabled]);
 
   const visible = !source || (overview?.sourceContext?.profileId === source.profileId && overview.sourceContext.generation === source.generation) ? overview : null;
-  return { overview: visible, loading, error, refresh };
+  return { overview: overviewForRuntime(visible, runtime), loading, error, refresh, runtime };
 }

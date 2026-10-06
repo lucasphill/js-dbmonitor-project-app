@@ -45,27 +45,46 @@ function cliError(error, stderr = "") {
   return new ConnectionError("TOKEN_GENERATION_FAILED", "token", "Não foi possível gerar a autorização temporária RDS. Confira endpoint, região e identidade AWS.");
 }
 
-function execAwsToken(profile, { execFileImpl = execFile, executable = "aws.exe" } = {}) {
+function isRdsIamProfile(profile) {
+  return profile?.authMode === 'rds_iam' || profile?.authMode === 'rds_iam_ssm';
+}
+
+function execAwsToken(profile, { execFileImpl = execFile, platform = process.platform,
+  executable = platform === 'win32' ? 'aws.exe' : 'aws', signal, deadline } = {}) {
   const { host, port, region, user, awsProfile } = validIamProfile(profile);
   const args = ["rds", "generate-db-auth-token", "--hostname", host,
     "--port", String(port), "--region", region, "--username", user];
   if (awsProfile) args.push("--profile", awsProfile);
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(new ConnectionError('CONNECTION_CANCELED', 'token', 'Conexão cancelada.'));
+    const remaining = deadline == null ? CLI_TIMEOUT_MS : deadline - Date.now();
+    if (remaining <= 0) return reject(new ConnectionError('CONNECTION_TIMEOUT', 'token', 'Tempo limite da conexão excedido.'));
     const options = {
-      shell: false, windowsHide: true, timeout: CLI_TIMEOUT_MS,
+      shell: false, windowsHide: true, timeout: Math.max(1, Math.min(CLI_TIMEOUT_MS, remaining)),
       maxBuffer: CLI_MAX_BUFFER,
       encoding: "utf8",
       env: { ...process.env, AWS_PAGER: "", AWS_CLI_AUTO_PROMPT: "off" },
     };
-    execFileImpl(executable, args, options, (error, stdout, stderr) => {
-      if (error) return reject(cliError(error, stderr));
+    let child; let settled = false;
+    const finish = (error, value) => {
+      if (settled) return;
+      settled = true; clearTimeout(timer); signal?.removeEventListener('abort', abort);
+      if (error) reject(error); else resolve(value);
+    };
+    const abort = () => { if (settled) return; child?.kill?.(); finish(new ConnectionError('CONNECTION_CANCELED', 'token', 'Conexão cancelada.')); };
+    const timer = setTimeout(() => { child?.kill?.(); finish(new ConnectionError('CONNECTION_TIMEOUT', 'token', 'Tempo limite da conexão excedido.')); }, options.timeout);
+    signal?.addEventListener('abort', abort, { once: true });
+    try { child = execFileImpl(executable, args, options, (error, stdout, stderr) => {
+      if (signal?.aborted) return abort();
+      if (deadline != null && Date.now() >= deadline) return finish(new ConnectionError('CONNECTION_TIMEOUT', 'token', 'Tempo limite da conexão excedido.'));
+      if (error) return finish(cliError(error, stderr));
       const token = typeof stdout === "string" ? stdout.trim() : "";
       if (!token || token.length > CLI_MAX_BUFFER || /[\r\n\x00]/.test(token)) {
-        return reject(new ConnectionError("TOKEN_GENERATION_FAILED", "token", "A AWS CLI não retornou uma autorização temporária válida."));
+        return finish(new ConnectionError("TOKEN_GENERATION_FAILED", "token", "A AWS CLI não retornou uma autorização temporária válida."));
       }
-      resolve(token);
-    });
+      finish(null, token);
+    }); } catch (error) { finish(cliError(error)); }
   });
 }
 
-module.exports = { ConnectionError, validIamProfile, execAwsToken, cliError };
+module.exports = { ConnectionError, validIamProfile, execAwsToken, cliError, isRdsIamProfile };

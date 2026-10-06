@@ -14,6 +14,10 @@ dist/
 *.pfx
 *.pem
 !electron/certs/rds-global-bundle.pem
+# Synthetic public test certificates and key; never used by the application.
+!tests/helpers/tls/test-ca.pem
+!tests/helpers/tls/test-server.pem
+!tests/helpers/tls/test-server.key
 __pycache__/
 *.pyc
 coverage/

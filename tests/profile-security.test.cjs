@@ -6,23 +6,29 @@ const path = require("node:path");
 const { openStorage, FILE_NAME } = require("../electron/storage.cjs");
 const { testConnection } = require("../electron/db.cjs");
 
-test("IAM token used by a real connection callback never enters SQLite or public result", async () => {
+for (const mode of ['rds_iam','rds_iam_ssm']) test(`${mode} token used by a connection callback never enters SQLite or public result`, async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "bdash-no-secret-"));
   const secret = "RDS_TOKEN_SENTINEL_X_AMZ_SIGNATURE_123456";
   const storage = openStorage(root);
   try {
     const profile = storage.createProfile({ label: "RDS", host: "fake.sa-east-1.rds.amazonaws.com",
-      port: 5432, database: "postgres", dbUser: "monitor_user", authMode: "rds_iam",
-      awsRegion: "sa-east-1", awsProfile: null, tlsCaMode: "bundled", tlsCaPath: null });
+      port: 5432, database: "postgres", dbUser: "monitor_user", authMode: mode,
+      awsRegion: "sa-east-1", awsProfile: null, tlsCaMode: "bundled", tlsCaPath: null,
+      ssmTarget: mode==='rds_iam_ssm'?'i-0123456789abcdef0':null,ssmLocalPort:null });
     class FakeClient {
       constructor(config) { this.config = config; }
       async connect() { assert.equal(await this.config.password(), secret); }
       async query() { return { rows: [{ database: "postgres", db_user: "monitor_user", server_version: "16" }] }; }
       async end() {}
     }
-    const result = await testConnection(profile, null, { Client: FakeClient, tokenProvider: () => secret });
+    const options={ Client: FakeClient, tokenProvider: () => secret,
+      ...(mode==='rds_iam_ssm'?{transport:{host:'127.0.0.1',port:15432}}:{})};
+    const result = await testConnection(profile, null, options);
     assert.equal(result.status, "success");
     assert.equal(JSON.stringify(result).includes(secret), false);
+    class FailingClient extends FakeClient { async connect(){ await super.connect();throw Object.assign(new Error(secret),{code:'28P01'}); } }
+    const failed=await testConnection(profile,null,{...options,Client:FailingClient});
+    assert.equal(failed.code,'DATABASE_AUTH_FAILED');assert.equal(JSON.stringify(failed).includes(secret),false);
     const at = "2026-09-23T12:00:00.000Z";
     storage.recordCycle(profile.id, { startedAt: at, finishedAt: at, result: "success",
       instance: { database: "postgres" }, metrics: {}, databases: [], capabilities: {} });

@@ -1,22 +1,29 @@
 /** UTC timestamp serialized across the Electron context bridge. */
 export type ISODate = string;
 export type ProfileId = number;
-export type AuthMode = "legacy_env" | "session_password" | "rds_iam";
+export type AuthMode = "legacy_env" | "session_password" | "rds_iam" | "rds_iam_ssm";
 export interface SourceContext { profileId: ProfileId; generation: number }
 export interface ConnectionProfile {
   id: ProfileId; label: string; host: string; port: number; database: string;
   dbUser: string; authMode: AuthMode; awsRegion: string | null;
   awsProfile: string | null; tlsCaMode: "bundled" | "custom" | null;
   tlsCaPath?: string | null;
+  ssmTarget?: string | null; ssmLocalPort?: number | null;
   archivedAt: ISODate | null; createdAt: ISODate; updatedAt: ISODate;
 }
 export type ProfileDraft = Omit<ConnectionProfile, "id" | "archivedAt" | "createdAt" | "updatedAt"> & { tlsCaPath?: string | null };
-export interface ActiveProfile { profile: ConnectionProfile; generation: number }
+export interface ConnectionRuntime {
+  sourceContext: SourceContext; revision: number;
+  state: "disconnected" | "connecting" | "connected" | "failed";
+  stage: ConnectionTest["stage"]; changedAt: ISODate;
+  effectiveLocalPort?: number; code?: string; message?: string; cleanupWarning?: string;
+}
+export interface ActiveProfile { profile: ConnectionProfile; generation: number; runtime?: ConnectionRuntime }
 export interface ConnectionTest {
   status: "success" | "failed";
-  stage: "aws_identity" | "token" | "network" | "tls" | "database_auth" | "query" | "complete";
+  stage: "prerequisites" | "tunnel" | "aws_identity" | "token" | "network" | "tls" | "database_auth" | "query" | "complete";
   checkedAt: ISODate; profileId?: ProfileId; database?: string; dbUser?: string;
-  serverVersion?: string; message: string;
+  serverVersion?: string; message: string; requestId?: string; code?: string; canceled?: boolean; cleanupWarning?: string;
 }
 
 export type SourceState =
@@ -342,7 +349,13 @@ export interface DashboardApi {
   getStartupState(): Promise<StartupState>;
   setStartupEnabled(enabled: boolean): Promise<StartupState>;
   listConnectionProfiles(includeArchived?: boolean): Promise<{ profiles: ConnectionProfile[]; activeProfileId: ProfileId; generation: number }>;
-  testConnectionProfile(draftOrId: ProfileDraft | ProfileId, transientPassword?: string): Promise<ConnectionTest>;
+  testConnectionProfile(draftOrId: ProfileDraft | ProfileId, transientPassword?: string, options?: { requestId: string }): Promise<ConnectionTest>;
+  getConnectionStatus(): Promise<ConnectionRuntime>;
+  disconnectConnectionProfile(context: SourceContext): Promise<ConnectionRuntime>;
+  reconnectConnectionProfile(context: SourceContext): Promise<ActiveProfile>;
+  cancelConnectionTest(requestId: string): Promise<{ canceled: boolean }>;
+  cancelConnectionAttempt(context: SourceContext): Promise<ConnectionRuntime>;
+  onConnectionState(listener: (runtime: ConnectionRuntime) => void): () => void;
   createConnectionProfile(draft: ProfileDraft): Promise<ConnectionProfile>;
   updateConnectionProfile(id: ProfileId, changes: Partial<ProfileDraft>, confirmNewOrigin?: boolean): Promise<{ profile: ConnectionProfile; archivedProfileId?: ProfileId }>;
   activateConnectionProfile(id: ProfileId): Promise<ActiveProfile>;

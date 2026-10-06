@@ -3,7 +3,8 @@ const path = require("node:path");
 const { DatabaseSync } = require("node:sqlite");
 
 const FILE_NAME = "bdash.sqlite";
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
+const { profileIdentityChanged } = require("./profile-validation.cjs");
 const DEFAULT_PREFERENCES = Object.freeze({
   collectionIntervalSeconds: 15,
   metricsRetentionDays: 30,
@@ -41,6 +42,7 @@ function profileFromRow(row) {
     database: row.monitor_database, dbUser: row.db_user, authMode: row.auth_mode,
     awsRegion: row.aws_region, awsProfile: row.aws_profile,
     tlsCaMode: row.tls_ca_mode, tlsCaPath: row.tls_ca_path,
+    ssmTarget: row.ssm_target ?? null, ssmLocalPort: row.ssm_local_port ?? null,
     archivedAt: iso(row.archived_at), createdAt: iso(row.created_at), updatedAt: iso(row.updated_at),
     state: row.state, version: row.server_version, maxConnections: row.max_connections,
     serverStartedAt: iso(row.server_started_at), lastCollectedAt: iso(row.last_collected_at),
@@ -53,7 +55,7 @@ function migrate(db) {
   if (version === SCHEMA_VERSION) return;
   // SQLite requires FK enforcement to be disabled before, not within, the transaction
   // that rebuilds tables referenced by historical rows.
-  if (version < 3) db.exec("PRAGMA foreign_keys = OFF");
+  if (version < 4) db.exec("PRAGMA foreign_keys = OFF");
   db.exec("BEGIN IMMEDIATE");
   try {
     if (version < 1) {
@@ -270,13 +272,46 @@ function migrate(db) {
       const broken = db.prepare("PRAGMA foreign_key_check").all();
       if (broken.length) throw new Error("SQLite migration foreign key check failed");
     }
+    if (version < 4) {
+      db.exec(`
+        CREATE TABLE instances_v4 (
+          id INTEGER PRIMARY KEY,
+          label TEXT NOT NULL,
+          host TEXT NOT NULL,
+          port INTEGER NOT NULL CHECK (port BETWEEN 1 AND 65535),
+          monitor_database TEXT NOT NULL,
+          db_user TEXT NOT NULL,
+          auth_mode TEXT NOT NULL CHECK (auth_mode IN ('legacy_env','session_password','rds_iam','rds_iam_ssm')),
+          aws_region TEXT,
+          aws_profile TEXT,
+          tls_ca_mode TEXT,
+          tls_ca_path TEXT,
+          ssm_target TEXT,
+          ssm_local_port INTEGER CHECK (ssm_local_port IS NULL OR ssm_local_port BETWEEN 1 AND 65535),
+          archived_at INTEGER,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          server_version TEXT,
+          state TEXT NOT NULL DEFAULT 'unavailable',
+          capabilities_json TEXT NOT NULL DEFAULT '{}',
+          last_collected_at INTEGER,
+          max_connections INTEGER,
+          server_started_at INTEGER,
+          CHECK ((auth_mode='rds_iam_ssm' AND ssm_target IS NOT NULL) OR (auth_mode<>'rds_iam_ssm' AND ssm_target IS NULL AND ssm_local_port IS NULL))
+        );
+        INSERT INTO instances_v4 SELECT id,label,host,port,monitor_database,db_user,auth_mode,aws_region,aws_profile,tls_ca_mode,tls_ca_path,NULL,NULL,archived_at,created_at,updated_at,server_version,state,capabilities_json,last_collected_at,max_connections,server_started_at FROM instances;
+        DROP TABLE instances;
+        ALTER TABLE instances_v4 RENAME TO instances;
+      `);
+      if (db.prepare("PRAGMA foreign_key_check").all().length) throw new Error("SQLite migration foreign key check failed");
+    }
     db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");
     throw error;
   } finally {
-    if (version < 3) db.exec("PRAGMA foreign_keys = ON");
+    if (version < 4) db.exec("PRAGMA foreign_keys = ON");
   }
 }
 
@@ -326,13 +361,13 @@ class Storage {
     if (!draft || typeof draft !== "object") throw new TypeError("Invalid profile");
     const now = Date.now();
     const authMode = draft.authMode;
-    if (!["session_password", "rds_iam"].includes(authMode)) throw new TypeError("Invalid auth mode");
-    if (authMode === "rds_iam" && !draft.awsRegion) throw new TypeError("AWS region required");
+    if (!["session_password", "rds_iam", "rds_iam_ssm"].includes(authMode)) throw new TypeError("Invalid auth mode");
+    if (["rds_iam", "rds_iam_ssm"].includes(authMode) && !draft.awsRegion) throw new TypeError("AWS region required");
     const row = this.db.prepare(`INSERT INTO instances(label,host,port,monitor_database,db_user,auth_mode,
-      aws_region,aws_profile,tls_ca_mode,tls_ca_path,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+      aws_region,aws_profile,tls_ca_mode,tls_ca_path,ssm_target,ssm_local_port,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
       draft.label, draft.host, draft.port, draft.database, draft.dbUser, authMode,
       draft.awsRegion || null, draft.awsProfile || null, draft.tlsCaMode || null,
-      draft.tlsCaPath || null, now, now,
+      draft.tlsCaPath || null, draft.ssmTarget ?? null, draft.ssmLocalPort ?? null, now, now,
     );
     const id = Number(row.lastInsertRowid);
     this.db.prepare("INSERT INTO preferences(instance_id) VALUES (?)").run(id);
@@ -344,12 +379,12 @@ class Storage {
     const previous = this.getProfile(id);
     if (!previous || previous.archivedAt) throw new Error("Profile unavailable");
     if (!changes || typeof changes !== "object") throw new TypeError("Invalid profile");
-    const identityKeys = ["host","port","database","dbUser","authMode","awsRegion","awsProfile","tlsCaMode","tlsCaPath"];
-    const identityChange = identityKeys.some((key) => Object.hasOwn(changes, key) && changes[key] !== previous[key]);
+    const identityChange = profileIdentityChanged(previous, changes);
     if (!identityChange) {
-      if (Object.hasOwn(changes,"label")) {
-        this.db.prepare("UPDATE instances SET label=?,updated_at=? WHERE id=?").run(changes.label,Date.now(),id);
-      }
+      this.db.prepare("UPDATE instances SET label=?,ssm_target=?,ssm_local_port=?,updated_at=? WHERE id=?").run(
+        Object.hasOwn(changes,"label") ? changes.label : previous.label,
+        Object.hasOwn(changes,"ssmTarget") ? changes.ssmTarget : previous.ssmTarget,
+        Object.hasOwn(changes,"ssmLocalPort") ? changes.ssmLocalPort : previous.ssmLocalPort,Date.now(),id);
       return { profile: this.getProfile(id) };
     }
     if (!confirmNewOrigin) throw new Error("New origin confirmation required");
@@ -358,9 +393,9 @@ class Storage {
     try {
       const now = Date.now();
       const row = this.db.prepare(`INSERT INTO instances(label,host,port,monitor_database,db_user,auth_mode,
-        aws_region,aws_profile,tls_ca_mode,tls_ca_path,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+        aws_region,aws_profile,tls_ca_mode,tls_ca_path,ssm_target,ssm_local_port,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
         draft.label,draft.host,draft.port,draft.database,draft.dbUser,draft.authMode,
-        draft.awsRegion || null,draft.awsProfile || null,draft.tlsCaMode || null,draft.tlsCaPath || null,now,now);
+        draft.awsRegion || null,draft.awsProfile || null,draft.tlsCaMode || null,draft.tlsCaPath || null,draft.ssmTarget ?? null,draft.ssmLocalPort ?? null,now,now);
       const newId = Number(row.lastInsertRowid);
       this.db.prepare("INSERT INTO preferences(instance_id) VALUES (?)").run(newId);
       this.db.prepare("UPDATE active_profile SET instance_id=? WHERE instance_id=?").run(newId,id);

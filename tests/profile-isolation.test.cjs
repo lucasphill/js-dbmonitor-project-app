@@ -19,13 +19,14 @@ function snapshot(database, connections, at) {
   };
 }
 
-test("overview and CSV export use only the selected profile's samples", async () => {
+for(const mode of ['rds_iam','rds_iam_ssm']) test(`${mode} overview and CSV export use only the selected profile's samples`, async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "bdash-profile-isolation-"));
   const storage = openStorage(root);
   try {
     const second = storage.createProfile({ label: "Remoto", host: "remote.sa-east-1.rds.amazonaws.com",
-      port: 5432, database: "remote_db", dbUser: "observer", authMode: "rds_iam",
-      awsRegion: "sa-east-1", awsProfile: null, tlsCaMode: "bundled", tlsCaPath: null });
+      port: 5432, database: "remote_db", dbUser: "observer", authMode: mode,
+      awsRegion: "sa-east-1", awsProfile: null, tlsCaMode: "bundled", tlsCaPath: null,
+      ssmTarget:mode==='rds_iam_ssm'?'i-0123456789abcdef0':null,ssmLocalPort:null });
     const at = "2026-09-23T12:00:00.000Z";
     const period = { from: "2026-09-23T11:00:00.000Z", to: "2026-09-23T13:00:00.000Z" };
     storage.recordCycle(1, snapshot("local_db", 3, at));

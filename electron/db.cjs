@@ -9,6 +9,7 @@ let pool;
 let activeProfile = null;
 let sessionPassword = null;
 let switchingProfile = false;
+let activeTransport = null;
 // Public development default for the first local profile. Never apply it to remote origins.
 const DEFAULT_LOCAL_PASSWORD = "password";
 
@@ -47,7 +48,7 @@ function currentProfile() {
 function connectionConfig(profile, password = null, options = {}) {
   if (!profile || typeof profile !== "object") throw new ConnectionError("INVALID_INPUT", "network", "Perfil de conexão inválido.");
   const mode = profile.authMode;
-  if (!["legacy_env", "session_password", "rds_iam"].includes(mode)) {
+  if (!["legacy_env", "session_password", "rds_iam", "rds_iam_ssm"].includes(mode)) {
     throw new ConnectionError("INVALID_INPUT", "network", "Modo de autenticação inválido.");
   }
   if (typeof profile.host !== "string" || !profile.host || !Number.isInteger(Number(profile.port)) ||
@@ -66,7 +67,7 @@ function connectionConfig(profile, password = null, options = {}) {
     query_timeout: QUERY_TIMEOUT_MS + 500,
     options: `-c statement_timeout=${QUERY_TIMEOUT_MS}`,
   };
-  if (mode === "rds_iam") {
+  if (mode === "rds_iam" || mode === "rds_iam_ssm") {
     validIamProfile(profile);
     let ca;
     try {
@@ -80,7 +81,18 @@ function connectionConfig(profile, password = null, options = {}) {
       throw new ConnectionError("TLS_VALIDATION_FAILED", "tls", "Bundle CA RDS indisponível ou inválido. Confira a instalação ou o certificado selecionado.");
     }
     config.ssl = { ca, servername: profile.host, rejectUnauthorized: true };
-    config.password = () => (options.tokenProvider || execAwsToken)(profile);
+    config.password = () => {
+      options.onStage?.('token');
+      return (options.tokenProvider || execAwsToken)(profile, { signal: options.signal, deadline: options.deadline });
+    };
+    if (mode === 'rds_iam_ssm') {
+      const transport = options.transport;
+      if (!transport || !['127.0.0.1', '::1'].includes(transport.host) || !Number.isInteger(transport.port) || transport.port < 1 || transport.port > 65535) {
+        throw new ConnectionError('SSM_TUNNEL_LOST', 'tunnel', 'O túnel SSM não está disponível. Reconecte a origem.');
+      }
+      config.host = transport.host;
+      config.port = transport.port;
+    }
   } else if (mode === "legacy_env") {
     config.ssl = passwordTls(profile.host);
     const isDefaultLocal = profile.id === 1 && profile.host === "localhost" &&
@@ -96,7 +108,7 @@ function connectionConfig(profile, password = null, options = {}) {
   return config;
 }
 
-async function setActiveProfile(profile, password = null) {
+async function setActiveProfile(profile, password = null, options = {}) {
   const next = { ...profile };
   // Selecting a saved profile must remain possible even if its CA, AWS identity,
   // password or network is unavailable. The next checkout reports that failure
@@ -108,8 +120,9 @@ async function setActiveProfile(profile, password = null) {
   const old = pool;
   pool = null;
   try {
-    if (old) await old.end();
+    if (old) await endPool(old);
     activeProfile = next;
+    activeTransport = options.transport || null;
     sessionPassword = next.authMode === "session_password" ? password : null;
   } finally {
     switchingProfile = false;
@@ -117,12 +130,15 @@ async function setActiveProfile(profile, password = null) {
 }
 
 function getPool() {
+  if (currentProfile().authMode === 'rds_iam_ssm' && activeTransport?.healthy === false) {
+    throw new ConnectionError('SSM_TUNNEL_LOST', 'tunnel', 'O túnel SSM foi interrompido. Reconecte a origem.');
+  }
   if (switchingProfile) {
     throw new ConnectionError("PROFILE_CHANGED", "network", "A origem ainda está sendo alterada. Tente novamente.");
   }
   if (!pool) {
     pool = new Pool({
-      ...connectionConfig(currentProfile(), sessionPassword),
+      ...connectionConfig(currentProfile(), sessionPassword, { transport: activeTransport }),
       max: 3,
       idleTimeoutMillis: 30000,
     });
@@ -154,13 +170,32 @@ function classifyConnectionError(error) {
 }
 
 async function testConnection(profile, password = null, options = {}) {
+  if (options.transport?.signal) options = { ...options, signal: options.signal
+    ? AbortSignal.any([options.signal, options.transport.signal]) : options.transport.signal };
   const checkedAt = new Date().toISOString();
   let client;
+  let timer;
+  let onAbort;
   try {
+    if (options.signal?.aborted) throw new ConnectionError('CONNECTION_CANCELED', 'tunnel', 'Conexão cancelada.');
     client = new (options.Client || Client)(connectionConfig(profile, password, options));
-    await client.connect();
-    const { rows } = await client.query(`SELECT current_database() AS database,
-      current_user AS db_user, current_setting('server_version') AS server_version`);
+    const abortPromise = new Promise((_resolve, reject) => {
+      onAbort = () => {
+        void client.end().catch(() => {});
+        reject(new ConnectionError(options.signal?.reason?.message === 'deadline' ? 'CONNECTION_TIMEOUT' : 'CONNECTION_CANCELED', 'network', 'Conexão interrompida.'));
+      };
+      options.signal?.addEventListener('abort', onAbort, { once: true });
+      if (options.signal?.aborted) onAbort();
+      if (options.deadline) timer = setTimeout(() => {
+        void client.end().catch(() => {});
+        reject(new ConnectionError('CONNECTION_TIMEOUT', 'network', 'A conexão excedeu o tempo limite.'));
+      }, Math.max(1, options.deadline - Date.now()));
+    });
+    options.onStage?.('tls');
+    await Promise.race([client.connect(), abortPromise]);
+    options.onStage?.('query');
+    const { rows } = await Promise.race([client.query(`SELECT current_database() AS database,
+      current_user AS db_user, current_setting('server_version') AS server_version`), abortPromise]);
     return {
       status: "success", stage: "complete", checkedAt,
       ...(Number.isSafeInteger(profile.id) ? { profileId: profile.id } : {}),
@@ -175,7 +210,9 @@ async function testConnection(profile, password = null, options = {}) {
       ...(Number.isSafeInteger(profile?.id) ? { profileId: profile.id } : {}),
       code: safe.code, message: safe.message };
   } finally {
-    if (client) { try { await client.end(); } catch { /* Preserve sanitized result. */ } }
+    clearTimeout(timer);
+    if (onAbort) options.signal?.removeEventListener('abort', onAbort);
+    if (client) await endClient(client);
   }
 }
 
@@ -736,19 +773,54 @@ async function getGlobalQueryLatency() {
   }
 }
 
-async function closeDatabase() {
+async function endPool(closing) {
+  let timer;
+  try {
+    await Promise.race([closing.end(), new Promise(resolve => {
+      timer = setTimeout(() => {
+        // Pool clients belong only to this pool. Abort their sockets if a query
+        // prevents normal shutdown; never keep a tunnel alive indefinitely.
+        for (const client of closing._clients || []) client.connection?.stream?.destroy();
+        resolve();
+      }, 3500);
+    })]);
+  } finally { clearTimeout(timer); }
+}
+
+async function endClient(client) {
+  let timer;
+  try {
+    await Promise.race([Promise.resolve(client.end()).catch(() => {}), new Promise(resolve => {
+      timer = setTimeout(() => { client.connection?.stream?.destroy(); resolve(); }, 500);
+    })]);
+  } catch { /* Preserve the sanitized connection result. */ }
+  finally { clearTimeout(timer); }
+}
+
+async function invalidateTransport() {
+  activeTransport = null;
+  const closing = pool;
+  pool = null;
+  if (closing) {
+    for (const client of closing._clients || []) client.connection?.stream?.destroy();
+    await endPool(closing);
+  }
+}
+
+async function closeDatabase({ preserveProfile = false } = {}) {
   if (pool) {
     const closing = pool;
     pool = null;
-    await closing.end();
+    await endPool(closing);
   }
-  activeProfile = null;
+  if (!preserveProfile) activeProfile = null;
   sessionPassword = null;
+  activeTransport = null;
 }
 
 module.exports = {
   getPool, detectCapabilities, collectSnapshot, getDatabaseStats, listDatabaseInventory,
   listSessions, collectClientSessions, revealSessionDetails, terminateSession, getQueryAggregates,
   getGlobalQueryLatency, closeDatabase,
-  setActiveProfile, testConnection, connectionConfig, classifyConnectionError, currentProfile,
+  setActiveProfile, testConnection, connectionConfig, classifyConnectionError, currentProfile, invalidateTransport,
 };

@@ -83,11 +83,21 @@ export default function Home() {
   const [switching, setSwitching] = useState(false)
   const { overview, loading, error, refresh } = useDashboard(period, source, section !== "explanations")
 
+  useEffect(() => {
+    if (!window.bdash) return
+    // A new selection publishes its context before opening the external tunnel,
+    // allowing cancellation while activate/reconnect is still pending.
+    return window.bdash.onConnectionState((next) => {
+      setSource((previous) => !previous || next.sourceContext.generation > previous.generation
+        ? next.sourceContext : previous)
+    })
+  }, [])
+
   async function reloadProfiles() {
     if (!window.bdash) return
     const result = await window.bdash.listConnectionProfiles(true)
     setProfiles(result.profiles)
-    setSource({ profileId: result.activeProfileId, generation: result.generation })
+    setSource((previous) => previous && previous.generation > result.generation ? previous : { profileId: result.activeProfileId, generation: result.generation })
   }
 
   useEffect(() => {
@@ -96,7 +106,7 @@ export default function Home() {
     void window.bdash.listConnectionProfiles(true).then((result) => {
       if (!active) return
       setProfiles(result.profiles)
-      setSource({ profileId: result.activeProfileId, generation: result.generation })
+      setSource((previous) => previous && previous.generation > result.generation ? previous : { profileId: result.activeProfileId, generation: result.generation })
     }).catch((cause) => { if (active) setProfileError(cause instanceof Error ? cause.message : "Falha ao carregar perfis.") })
       .finally(() => { if (active) setProfileLoading(false) })
     return () => { active = false }
@@ -107,7 +117,7 @@ export default function Home() {
     setSwitching(true); setProfileError(null)
     try {
       const next = await window.bdash.activateConnectionProfile(id)
-      setSource({ profileId: next.profile.id, generation: next.generation })
+      setSource((previous) => previous && previous.generation > next.generation ? previous : { profileId: next.profile.id, generation: next.generation })
       setPeriod(periodFor(windowSize))
     } catch (cause) { setProfileError(cause instanceof Error ? cause.message : "Não foi possível selecionar a origem.") }
     finally { setSwitching(false) }
@@ -145,7 +155,7 @@ export default function Home() {
     finally { setManualRefreshing(false) }
   }
 
-  return <DashboardShell section={section} onSectionChange={selectSection} instance={overview?.instance} refreshing={loading || manualRefreshing || switching} onRefresh={() => void refreshNow()} profiles={profiles} source={source} switching={switching || profileLoading} onSelectProfile={(id) => void selectProfile(id)}>
+  return <DashboardShell section={section} onSectionChange={selectSection} instance={overview?.instance} refreshing={loading || manualRefreshing || switching} onRefresh={() => void refreshNow()} profiles={profiles} source={source} switching={switching || profileLoading} onSelectProfile={(id) => void selectProfile(id)} onReconnect={(active) => setSource({ profileId: active.profile.id, generation: active.generation })}>
     {section !== "explanations" && profileError ? <p role="alert" className="rounded-lg border border-destructive/40 p-3 text-sm text-destructive">{profileError}</p> : null}
     {section === "explanations" ? <ExplanationsView selectedTopicId={targetTopicId} onExplain={openExplanation} /> : profileLoading ? <div role="status" className="rounded-lg border p-6 text-sm text-muted-foreground">Carregando origens PostgreSQL…</div> : !source && typeof window !== "undefined" && window.bdash ? <div role="alert" className="rounded-lg border p-6 text-sm text-destructive">Nenhuma origem ativa disponível. {profileError}</div> : section === "overview" ? <>
       <div className="flex flex-wrap items-end justify-between gap-4">

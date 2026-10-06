@@ -5,7 +5,7 @@ import { Activity, BookOpenText, Database, FileText, Gauge, LayoutDashboard, Ref
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { TooltipProvider } from "@/components/ui/tooltip"
-import type { ConnectionProfile, DataBlock, InstanceHealth, SourceContext } from "@/lib/dashboard-types"
+import type { ActiveProfile, ConnectionProfile, DataBlock, InstanceHealth, SourceContext } from "@/lib/dashboard-types"
 import { ConnectionProfileSelector } from "./connection-profile-selector"
 import { formatAge, formatTimestamp } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -32,6 +32,7 @@ export function DashboardShell({
   source,
   switching,
   onSelectProfile,
+  onReconnect,
   children,
 }: {
   section: SectionId
@@ -43,6 +44,7 @@ export function DashboardShell({
   source: SourceContext | null
   switching: boolean
   onSelectProfile: (id: number) => void
+  onReconnect?: (active: ActiveProfile) => void
   children: ReactNode
 }) {
   const connected = instance?.data?.connected && (instance.state === "ready" || instance.state === "partial")
@@ -67,7 +69,7 @@ export function DashboardShell({
           <header className="flex min-h-[72px] flex-wrap items-center justify-between gap-3 border-b px-4 py-3 sm:px-6">
             <div className="flex min-w-0 flex-wrap items-center gap-3 text-sm">
               <Gauge className="size-5 shrink-0 text-primary" aria-hidden />
-              <ConnectionProfileSelector profiles={profiles} activeProfileId={source?.profileId ?? null} busy={switching} onSelect={onSelectProfile} />
+              <ConnectionProfileSelector profiles={profiles} activeProfileId={source?.profileId ?? null} busy={switching} onSelect={onSelectProfile} sourceContext={source} onReconnect={onReconnect} />
               <Badge variant={connected ? "default" : "secondary"}>{connected ? "Saudável" : instance?.state === "loading" ? "Consultando" : "Indisponível"}</Badge>
               <span className="text-xs text-muted-foreground" title={instance?.updatedAt ? formatTimestamp(instance.updatedAt) : undefined}>Última coleta: {formatAge(instance?.updatedAt)}</span>
             </div>

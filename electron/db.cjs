@@ -63,7 +63,10 @@ function connectionConfig(profile, password = null, options = {}) {
     database: profile.database,
     user: profile.dbUser,
     application_name: "DBMonitor",
-    connectionTimeoutMillis: QUERY_TIMEOUT_MS,
+    // IAM token generation and the remote TLS handshake share this connect
+    // budget. The previous 3s query budget also killed a valid CLI token request.
+    connectionTimeoutMillis: ["rds_iam", "rds_iam_ssm"].includes(mode)
+      ? Math.max(1, Math.min(30000, options.deadline ? options.deadline - Date.now() : 30000)) : QUERY_TIMEOUT_MS,
     query_timeout: QUERY_TIMEOUT_MS + 500,
     options: `-c statement_timeout=${QUERY_TIMEOUT_MS}`,
   };
@@ -813,7 +816,7 @@ async function closeDatabase({ preserveProfile = false } = {}) {
     pool = null;
     await endPool(closing);
   }
-  if (!preserveProfile) activeProfile = null;
+  if (!preserveProfile && activeProfile?.authMode !== "rds_iam_ssm") activeProfile = null;
   sessionPassword = null;
   activeTransport = null;
 }

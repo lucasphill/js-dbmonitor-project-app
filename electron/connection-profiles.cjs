@@ -322,6 +322,14 @@ function createProfileController({ storage, db, collectorFactory, tunnelManager,
       activeProfileId: activeProfile?.id ?? storage.getActiveProfileId(), generation,
     }),
     create: (draft) => storage.createProfile(validateProfileDraft(draft)),
+    delete: (id, confirmed) => serial(() => {
+      if (!confirmed) throw new ProfileInputError("Confirme a exclusão permanente do perfil e seu histórico");
+      if (id === activeProfile?.id || id === storage.getActiveProfileId()) throw new ProfileInputError("Selecione outro perfil antes de excluir o ativo");
+      if (!storage.getProfile(id)) throw new ProfileInputError("Perfil não encontrado", "PROFILE_NOT_FOUND");
+      storage.deleteProfile(id);
+      passwords.delete(id);
+      return { deletedId: id, activeProfileId: storage.getActiveProfileId() };
+    }),
     archive: (id, confirmed) => serial(() => {
       if (!confirmed) throw new ProfileInputError("Confirmação necessária");
       if (id === activeProfile?.id) throw new ProfileInputError("Selecione outro perfil antes de arquivar o ativo");

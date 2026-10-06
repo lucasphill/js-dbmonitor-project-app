@@ -369,6 +369,7 @@ export interface DashboardApi {
   createConnectionProfile(draft: ProfileDraft): Promise<ConnectionProfile>;
   updateConnectionProfile(id: ProfileId, changes: Partial<ProfileDraft>, confirmNewOrigin?: boolean): Promise<{ profile: ConnectionProfile; archivedProfileId?: ProfileId }>;
   activateConnectionProfile(id: ProfileId): Promise<ActiveProfile>;
+  deleteConnectionProfile(id: ProfileId, confirm: boolean): Promise<{ deletedId: ProfileId; activeProfileId: ProfileId }>;
   archiveConnectionProfile(id: ProfileId, confirm: boolean): Promise<{ archivedId: ProfileId; activeProfileId: ProfileId }>;
   setSessionPassword(id: ProfileId, password: string): Promise<{ accepted: true }>;
   getOverview(period?: Period): Promise<Overview>;

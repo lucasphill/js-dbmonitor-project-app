@@ -79,6 +79,19 @@ export function DiagnosticsView({ profiles, source, onProfilesChanged, onSelectP
     } finally { setProfileBusy(false) }
   }
 
+  async function deleteProfile(profile: ConnectionProfile) {
+    if (!window.bdash || profileBusy) return
+    if (profile.id === source?.profileId) { setError("Selecione outra origem antes de excluir este perfil."); return }
+    if (!window.confirm(`Excluir permanentemente ${profile.label}? A conexão, o histórico coletado, os logs e as preferências serão apagados. Esta ação não pode ser desfeita.`)) return
+    setProfileBusy(true); setError(null)
+    try {
+      await window.bdash.deleteConnectionProfile(profile.id, true)
+      if (editing?.id === profile.id) { setEditing(null); setFormOpen(false) }
+      await onProfilesChanged(); setNotice("Conexão e histórico excluídos permanentemente.")
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Falha ao excluir perfil.") }
+    finally { setProfileBusy(false) }
+  }
+
   async function archiveProfile(profile: ConnectionProfile) {
     if (!window.bdash) return
     if (profile.id === source?.profileId) { setError("Selecione outra origem antes de arquivar este perfil."); return }
@@ -220,8 +233,8 @@ export function DiagnosticsView({ profiles, source, onProfilesChanged, onSelectP
 
     <Card><CardHeader><CardTitle className="text-base font-semibold">Origens PostgreSQL</CardTitle><p className="text-xs text-muted-foreground">Selecione uma origem no cabeçalho. Cada perfil mantém suas próprias coletas, preferências e histórico.</p></CardHeader><CardContent className="flex flex-col gap-4">
       <div className="flex flex-col gap-2">{profiles.map((profile) => <div key={profile.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3 text-sm">
-        <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><strong>{profile.label}</strong><Badge variant={profile.id === source?.profileId ? "default" : "secondary"}>{profile.archivedAt ? "Arquivado" : profile.id === source?.profileId ? "Ativo" : "Disponível"}</Badge><Badge variant="outline">{profile.authMode === "rds_iam" ? "RDS IAM" : profile.authMode === "session_password" ? "Senha da sessão" : "Legado"}</Badge></div><p className="break-all text-xs text-muted-foreground">{profileDescription(profile)}</p></div>
-        <div className="flex gap-2"><Button type="button" size="sm" variant="outline" onClick={() => void onSelectProfile(profile.id)} disabled={profileBusy || !!profile.archivedAt || profile.id === source?.profileId}>Selecionar</Button><Button type="button" size="sm" variant="outline" onClick={() => { setEditing(profile); setFormOpen(true) }} disabled={profileBusy || !!profile.archivedAt}>Editar</Button><Button type="button" size="sm" variant="ghost" onClick={() => void archiveProfile(profile)} disabled={profileBusy || !!profile.archivedAt || profile.id === source?.profileId}>Arquivar</Button></div>
+        <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><strong>{profile.label}</strong><Badge variant={profile.id === source?.profileId ? "default" : "secondary"}>{profile.archivedAt ? "Arquivado" : profile.id === source?.profileId ? "Ativo" : "Disponível"}</Badge><Badge variant="outline">{profile.authMode === "rds_iam_ssm" ? "SSM + IAM" : profile.authMode === "rds_iam" ? "RDS IAM" : profile.authMode === "session_password" ? "Senha da sessão" : "Legado"}</Badge></div><p className="break-all text-xs text-muted-foreground">{profileDescription(profile)}</p></div>
+        <div className="flex gap-2"><Button type="button" size="sm" variant="outline" onClick={() => void onSelectProfile(profile.id)} disabled={profileBusy || !!profile.archivedAt || profile.id === source?.profileId}>Selecionar</Button><Button type="button" size="sm" variant="outline" onClick={() => { setEditing(profile); setFormOpen(true) }} disabled={profileBusy || !!profile.archivedAt}>Editar</Button><Button type="button" size="sm" variant="ghost" onClick={() => void archiveProfile(profile)} disabled={profileBusy || !!profile.archivedAt || profile.id === source?.profileId}>Arquivar</Button><Button type="button" size="sm" variant="destructive" onClick={() => void deleteProfile(profile)} disabled={profileBusy || profile.id === source?.profileId}>Excluir</Button></div>
       </div>)}</div>
       {!formOpen ? <Button type="button" variant="outline" size="sm" onClick={() => { setEditing(null); setFormOpen(true) }}>Adicionar origem</Button> : <div className="rounded-lg border p-4"><h3 className="mb-3 font-semibold">{editing ? `Editar ${editing.label}` : "Novo perfil PostgreSQL"}</h3><ConnectionProfileForm profile={editing} onSave={saveProfile} onCancel={() => { setFormOpen(false); setEditing(null) }} /></div>}
       <p className="text-xs text-muted-foreground">O teste de conexão confirma acesso e uma consulta ao PostgreSQL. Métricas administrativas podem exigir privilégios adicionais. Para AWS SSO expirado, execute <code>aws sso login --profile nome</code> no terminal.</p>

@@ -415,6 +415,22 @@ class Storage {
     return this.getProfile(id);
   }
 
+  deleteProfile(id) {
+    id = profileId(id);
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      if (id === this.getActiveProfileId()) throw new Error("Cannot delete active profile");
+      if (!this.getProfile(id)) throw new Error("Profile unavailable");
+      // Cycle and log descendants are removed by their existing FK cascades.
+      for (const table of ["collection_cycles", "log_sources", "termination_attempts", "preferences"]) {
+        this.db.prepare(`DELETE FROM ${table} WHERE instance_id=?`).run(id);
+      }
+      this.db.prepare("DELETE FROM instances WHERE id=?").run(id);
+      this.db.exec("COMMIT");
+      return id;
+    } catch (error) { this.db.exec("ROLLBACK"); throw error; }
+  }
+
   getPreferences(id) {
     const row = this.db.prepare("SELECT * FROM preferences WHERE instance_id = ?").get(profileId(id));
     if (!row) throw new Error("Profile unavailable");

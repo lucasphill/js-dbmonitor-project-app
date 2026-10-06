@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld("bdash", {
   updateConnectionProfile: (id, changes, confirmNewOrigin = false) =>
     invoke("profiles:update", id, changes, confirmNewOrigin),
   activateConnectionProfile: (id) => invoke("profiles:activate", id),
+  deleteConnectionProfile: (id, confirm) => invoke("profiles:delete", id, confirm),
   archiveConnectionProfile: (id, confirm) => invoke("profiles:archive", id, confirm),
   setSessionPassword: (id, password) => invoke("profiles:session-password", id, password),
   getOverview: (period) => invoke("dashboard:overview", period),

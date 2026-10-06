@@ -170,6 +170,7 @@ app.whenReady().then(async () => {
   register("profiles:update", (id, changes, confirmNewOrigin = false) =>
     controller.update(profileId(id), changes, confirmNewOrigin === true));
   register("profiles:activate", (id) => controller.switchTo(profileId(id)));
+  register("profiles:delete", (id, confirmed) => controller.delete(profileId(id), confirmation(confirmed)));
   register("profiles:archive", (id, confirmed) => controller.archive(profileId(id), confirmation(confirmed)));
   register("profiles:session-password", (id, password) => controller.setPassword(profileId(id), password));
 

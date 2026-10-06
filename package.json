@@ -2,7 +2,7 @@
   "name": "dbmonitor-desktop",
   "productName": "DBMonitor",
   "description": "Dashboard desktop de observabilidade PostgreSQL",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "private": true,
   "main": "electron/main.cjs",
   "scripts": {

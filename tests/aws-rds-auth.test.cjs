@@ -12,7 +12,7 @@ test("AWS CLI receives fixed arguments and no shell", async () => {
     callback(null, "temporary-token\n", "");
   } });
   assert.equal(token, "temporary-token");
-  assert.equal(seen.file, "aws.exe");
+  assert.equal(seen.file, process.platform === "win32" ? "aws.exe" : "aws");
   assert.deepEqual(seen.args, ["rds", "generate-db-auth-token", "--hostname", profile.host,
     "--port", "5432", "--region", "sa-east-1", "--username", "monitor_user"]);
   assert.equal(seen.options.shell, false);
